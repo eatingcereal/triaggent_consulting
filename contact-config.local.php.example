@@ -1,0 +1,15 @@
+<?php
+/**
+ * Optional local/server secrets. Copy to contact-config.local.php on Hostinger
+ * (or keep gitignored locally). Values merge over contact-config.php.
+ */
+return [
+    'smtp' => [
+        'enabled'  => true,
+        'host'     => 'smtp.hostinger.com',
+        'port'     => 465,
+        'encryption' => 'ssl',
+        'username' => 'contact@triaggent.com',
+        'password' => 'YOUR_EMAIL_PASSWORD_HERE',
+    ],
+];
