@@ -391,43 +391,125 @@
     const s = data.summary;
     const k = data.kpis;
     const spec = s.specialty || [];
+    const nPrac = (data.practitioners || []).length || 77;
+    const nFac = (data.facilities || []).length || 12;
+    const nLink = (data.affiliations || []).length || 87;
+
+    // (1) What the dataset entails — fields present vs absent
+    const present = [
+      "Provider & facility IDs (NPI)",
+      "Names · credential",
+      "Specialty 1 + 2",
+      "Practice address / ZIP",
+      "Decile rank (per cohort)",
+      "Patient count — masked *",
+      "Workload band",
+    ];
+    const absent = (data.meta && data.meta.not_in_extract) || [
+      "Procedure / diagnosis codes",
+      "Service dates",
+      "Charge / allowed / paid $",
+      "Patient residence · stage",
+      "Outcomes",
+      "Referring-vs-operating role",
+    ];
+
+    // (2) Possibilities — capability ladder by data tier
+    const tiers = [
+      { k: "Have now", t: "MarketView sample", c: ["Provider / facility atlas", "Workforce distribution", "Association network", "Masking-aware volume"], tone: "var(--muted)" },
+      { k: "More rows", t: "National MarketView", c: ["National provider coverage", "Catchment context", "Peer benchmarking"], gate: "Same schema, wider geography", tone: "#8f88e6" },
+      { k: "New data", t: "+ PJI / detailed claims", c: ["Longitudinal journeys", "Service classification", "Observed allowed / paid $", "Program attribution"], gate: "TOKEN · dates · codes · $", tone: "#6a5cf0" },
+      { k: "New data", t: "+ cost & benchmarks", c: ["Contribution margin", "Payer-mix blending", "Member customization"], gate: "Cost accounting inputs", tone: "#4f46e5" },
+    ];
+
+    // (3) External datasets to layer in
+    const extCats = [
+      ["Geographic & access", 11, "NPPES · ACS · TIGER · SEER/USCS · RUCA · SVI · HRSA · OSRM · Care Compare"],
+      ["Medicare rate files", 5, "PFS · OPPS/APC · IPPS DRG · Part B ASP · CLFS"],
+      ["Cost & benchmark", 3, "HCUP + cost-to-charge · Medicare Cost Reports · FAIR Health"],
+      ["Licensed claims", 6, "PJI/MarketView · SEER-Medicare · MarketScan · Optum · MN APCD"],
+    ];
+
+    const stat = (n, l) => `<div class="mini"><b>${n}</b><span>${l}</span></div>`;
+    const chip = (t, on) => `<span class="chip ${on ? "on" : "off"}">${esc(t)}</span>`;
+    const step = (x) =>
+      `<div class="step" style="--tier:${x.tone}">
+         <div class="tier-k">${esc(x.k)}</div>
+         <h4>${esc(x.t)}</h4>
+         <ul>${x.c.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>
+         ${x.gate ? `<div class="gate">↑ ${esc(x.gate)}</div>` : ""}
+       </div>`;
+
     $("#table-wrap").innerHTML = `
       <p class="lede">${esc(s.headline)}</p>
       <div class="verdict">${esc(s.verdict)}</div>
       <div class="kpis">
-        ${kpi("Visible facility cells", k.ovarian_unsuppressed_patients, "Ovarian · not unique patients")}
         ${kpi("Gyn-onc any specialty", k.gynonc_any, `${k.gynonc_primary} primary · ${k.gynonc_secondary_only} secondary-only`)}
-        ${kpi("Confirmed RH links", k.confirmed_rh_links, `${k.rh_rank_without_link} ranks with blank link counts`)}
-        ${kpi("Multi-site people", k.multi_facility_practitioners, "2–3 facilities; association not referral")}
+        ${kpi("Visible facility cells", k.ovarian_unsuppressed_patients, "Ovarian · not unique patients")}
+        ${kpi("Confirmed RH links", k.confirmed_rh_links, `${k.rh_rank_without_link} ranks, blank counts`)}
+        ${kpi("Multi-site people", k.multi_facility_practitioners, "association, not referral")}
         ${kpi("Alerts", k.open_alerts, `${k.critical_alerts} critical`, true)}
       </div>
-      <div class="findings">
-        ${s.findings
-          .map(
-            (f) => `<article class="finding ${esc(f.tone)}"><h3>${esc(f.title)}</h3><p>${esc(f.body)}</p></article>`
-          )
-          .join("")}
-      </div>
-      <div class="claim-grid">
-        <div class="card">
-          <h2>What this extract can support</h2>
-          <ul>${s.can_do.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+
+      <section class="sum-section">
+        <div class="section-head"><span class="eyebrow">The sample</span><h2>What this dataset entails</h2><span class="sub">A provider/facility scorecard — no patient, claim, or dollar rows</span></div>
+        <div class="stat-strip">
+          ${stat(nPrac, "practitioners (73 MD · 4 PA)")}
+          ${stat(nFac, "MN acute-care hospitals")}
+          ${stat(nLink, "provider–facility links")}
+          ${stat(2, "cohorts (ovarian · radical)")}
+          ${stat(41, "draft phenotype codes")}
         </div>
-        <div class="card">
-          <h2>What it cannot support</h2>
-          <ul>${s.cannot_do.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+        <div class="grid-2" style="margin-top:0">
+          <div class="card">
+            <h2>Fields in the extract</h2>
+            <div class="fieldmap">
+              <div><h4 class="on-h">Present</h4><div class="chips">${present.map((t) => chip(t, true)).join("")}</div></div>
+              <div><h4 class="off-h">Absent</h4><div class="chips">${absent.map((t) => chip(t, false)).join("")}</div></div>
+            </div>
+          </div>
+          <div class="card">
+            <h2>Ovarian patient cells by specialty</h2>
+            <p class="muted" style="margin:0 0 6px">Numeric vs * vs blank. Do not add across specialties as unique patients.</p>
+            <div class="chart-box" style="height:${Math.max(200, spec.length * 26)}px"><canvas id="specStack"></canvas></div>
+          </div>
         </div>
-      </div>
-      <div class="card" style="margin-top:12px">
-        <h2>Ovarian patient cells by primary specialty — numeric vs * vs blank</h2>
-        <p class="muted" style="margin:0 0 8px">Do not add these numeric sums across specialties as unique patients. OB/GYN holds most of the visible numeric cells.</p>
-        <div class="chart-box" style="height:${Math.max(220, spec.length * 28)}px"><canvas id="specStack"></canvas></div>
-      </div>
-      <div class="next">
-        <h2>Recommended next step</h2>
-        <p>${esc(s.next_step)}</p>
-        <ul>${s.questions.map((q) => `<li>${esc(q)}</li>`).join("")}</ul>
-      </div>`;
+      </section>
+
+      <section class="sum-section">
+        <div class="section-head"><span class="eyebrow">Upside</span><h2>Possibilities with the full dataset</h2><span class="sub">Each tier unlocks new analysis — more rows ≠ new capabilities</span></div>
+        <div class="ladder">${tiers.map(step).join("")}</div>
+      </section>
+
+      <section class="sum-section">
+        <div class="section-head"><span class="eyebrow">Augment</span><h2>External datasets to layer in</h2><span class="sub">Public + licensed sources that add geography, price, and journeys</span></div>
+        <div class="grid-2" style="margin-top:0">
+          <div class="card">
+            <h2>Sources by category</h2>
+            <div class="chart-box" style="height:220px"><canvas id="extChart"></canvas></div>
+          </div>
+          <div class="card">
+            <h2>What each category brings</h2>
+            <div class="srccats">
+              ${extCats
+                .map(
+                  (c) => `<div class="srccat"><div class="srccat-h"><span class="dot"></span>${esc(c[0])} <em>${c[1]}</em></div><p>${esc(c[2])}</p></div>`
+                )
+                .join("")}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sum-section">
+        <div class="claim-grid">
+          <div class="card"><h2>What this extract can support</h2><ul>${s.can_do.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
+          <div class="card"><h2>What it cannot support</h2><ul>${s.cannot_do.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
+        </div>
+      </section>
+
+      <div class="next"><h2>Recommended next step</h2><p>${esc(s.next_step)}</p></div>`;
+
     stackedBar(
       "specStack",
       spec.map((r) => r.specialty),
@@ -436,6 +518,12 @@
         { label: "* suppressed", data: spec.map((r) => r.suppressed), backgroundColor: cssVar("--series-amber", "#e0902a") },
         { label: "Blank", data: spec.map((r) => r.blank), backgroundColor: cssVar("--series-muted", "#cfcabf") },
       ]
+    );
+    barChart(
+      "extChart",
+      extCats.map((c) => c[0]),
+      extCats.map((c) => c[1]),
+      cssVar("--series-1", "#4f46e5")
     );
   }
 
