@@ -1,2 +1,4 @@
 .DS_Store
 contact-config.local.php
+sgo/data/*.json
+!sgo/data/*.json.enc

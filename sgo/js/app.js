@@ -1,0 +1,537 @@
+(() => {
+  const state = {
+    view: "overview",
+    cohort: "ovarian",
+    system: "all",
+    gynonc: "all",
+    sort: { table: "facilities", key: "volume", dir: -1 },
+    charts: {},
+    map: null,
+  };
+
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+  async function loadFile(name) {
+    const res = await fetch("api.php?file=" + encodeURIComponent(name), {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    if (res.status === 401) {
+      window.location.reload();
+      throw new Error("unauthorized");
+    }
+    if (!res.ok) throw new Error("failed " + name);
+    return res.json();
+  }
+
+  function cohortKey() {
+    return state.cohort === "radical" ? "radical_hysterectomy" : "ovarian";
+  }
+
+  function fmtCount(obj) {
+    if (!obj) return "—";
+    if (obj.suppressed) return "*";
+    if (obj.missing || obj.value == null) return "—";
+    return String(obj.value);
+  }
+
+  function volume(obj) {
+    return obj && obj.value != null ? obj.value : -1;
+  }
+
+  function filteredFacilities(data) {
+    return data.facilities.filter((f) => state.system === "all" || f.system === state.system);
+  }
+
+  function filteredPractitioners(data) {
+    let rows = data.practitioners;
+    if (state.gynonc === "primary") rows = rows.filter((p) => p.gynonc_primary);
+    if (state.gynonc === "any") rows = rows.filter((p) => p.gynonc_any);
+    if (state.gynonc === "neither") rows = rows.filter((p) => !p.gynonc_any);
+    if (state.system !== "all") {
+      const ids = new Set(
+        data.affiliations
+          .filter((a) => {
+            const fac = data.facilities.find((f) => f.poid === a.poid);
+            return fac && fac.system === state.system;
+          })
+          .map((a) => a.piid)
+      );
+      rows = rows.filter((p) => ids.has(p.piid));
+    }
+    return rows;
+  }
+
+  function destroyChart(id) {
+    if (state.charts[id]) {
+      state.charts[id].destroy();
+      delete state.charts[id];
+    }
+  }
+
+  function barChart(id, labels, values, color) {
+    destroyChart(id);
+    const ctx = document.getElementById(id);
+    if (!ctx) return;
+    state.charts[id] = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [{ data: values, backgroundColor: color || "#4f46e5", borderRadius: 6, maxBarThickness: 28 }],
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: "#eee" }, ticks: { precision: 0 } },
+          y: { grid: { display: false }, ticks: { font: { size: 11 } } },
+        },
+      },
+    });
+  }
+
+  function renderMap(facilities) {
+    const el = document.getElementById("map");
+    if (!el) return;
+    if (state.map) {
+      state.map.remove();
+      state.map = null;
+    }
+    const map = L.map(el, { scrollWheelZoom: false }).setView([45.6, -93.4], 6);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap",
+      maxZoom: 18,
+    }).addTo(map);
+    const key = cohortKey();
+    const nums = facilities.map((f) => volume(f[key])).filter((n) => n > 0);
+    const max = Math.max(1, ...nums);
+    facilities.forEach((f) => {
+      if (f.lat == null || f.lon == null) return;
+      const v = volume(f[key]);
+      const suppressed = f[key].suppressed;
+      const r = v > 0 ? 8 + (Math.sqrt(v / max) * 22) : 8;
+      const marker = L.circleMarker([f.lat, f.lon], {
+        radius: r,
+        color: suppressed ? "#b45309" : "#4f46e5",
+        fillColor: suppressed ? "#fde68a" : "#4f46e5",
+        fillOpacity: suppressed ? 0.35 : 0.55,
+        weight: 2,
+      }).addTo(map);
+      marker.bindPopup(
+        `<strong>${esc(f.name)}</strong><br>${esc(f.system)} · ${esc(f.city)}<br>` +
+          `Patients: ${fmtCount(f[key])}` +
+          (f[key].rank != null ? `<br>National decile: ${f[key].rank}` : "")
+      );
+    });
+    state.map = map;
+    setTimeout(() => map.invalidateSize(), 80);
+  }
+
+  function esc(s) {
+    return String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function renderOverview(data) {
+    const fac = filteredFacilities(data);
+    const prac = filteredPractitioners(data);
+    const key = cohortKey();
+    const unsup = fac.map((f) => f[key].value).filter((v) => v != null);
+    const sum = unsup.reduce((a, b) => a + b, 0);
+    const mayo = fac.find((f) => f.name && f.name.includes("MAYO"));
+    const gynPri = prac.filter((p) => p.gynonc_primary).length;
+    const starHosp = fac.filter((f) => f[key].suppressed).length;
+
+    $("#kpi-row").innerHTML = [
+      kpi("Hospitals", fac.length, "Acute-care MN extract"),
+      kpi("Practitioners", prac.length, `${gynPri} primary gyn-onc`),
+      kpi("Unsuppressed patients", sum || "—", `${starHosp} hospitals still *`),
+      kpi(
+        "Mayo share",
+        mayo && sum ? Math.round((mayo[key].value / sum) * 100) + "%" : "—",
+        mayo && mayo[key].rank != null ? `National decile ${mayo[key].rank}` : "Not in current filter"
+      ),
+      kpi("Data-trust alerts", data.alerts.length, `${data.kpis.critical_alerts} critical`, true),
+    ].join("");
+
+    const ranked = [...fac].sort((a, b) => volume(b[key]) - volume(a[key]));
+    const withVol = ranked.filter((f) => f[key].value != null);
+    barChart(
+      "volChart",
+      withVol.map((f) => shortName(f.name)),
+      withVol.map((f) => f[key].value),
+      "#4f46e5"
+    );
+
+    const spec = {};
+    prac.forEach((p) => {
+      const s = p.specialty_1 || "Unknown";
+      spec[s] = (spec[s] || 0) + 1;
+    });
+    const specRows = Object.entries(spec).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    barChart("specChart", specRows.map((r) => r[0]), specRows.map((r) => r[1]), "#6366f1");
+
+    renderMap(fac);
+  }
+
+  function kpi(label, value, hint, alert) {
+    return `<article class="kpi${alert ? " alert" : ""}"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="hint">${esc(hint)}</div></article>`;
+  }
+
+  function shortName(name) {
+    return String(name)
+      .replace("M HEALTH FAIRVIEW UNIVERSITY OF MINNESOTA MEDICAL CENTER", "Fairview UMMC")
+      .replace("M HEALTH FAIRVIEW ST. JOHN'S HOSPITAL", "Fairview St. John's")
+      .replace("M HEALTH FAIRVIEW SOUTHDALE HOSPITAL", "Fairview Southdale")
+      .replace("ST. FRANCIS REGIONAL MEDICAL CENTER", "St. Francis")
+      .replace("ESSENTIA HEALTH ST. MARY'S MEDICAL CENTER", "Essentia St. Mary's")
+      .replace("CENTRACARE - ST. CLOUD HOSPITAL", "CentraCare St. Cloud")
+      .replace("ABBOTT NORTHWESTERN HOSPITAL", "Abbott Northwestern")
+      .replace("MAYO CLINIC - ROCHESTER", "Mayo Rochester")
+      .replace(" METHODIST HOSPITAL", " Methodist")
+      .replace("HOSPITAL", "Hosp.");
+  }
+
+  function sortRows(rows, keyFn) {
+    const dir = state.sort.dir;
+    return [...rows].sort((a, b) => {
+      const av = keyFn(a);
+      const bv = keyFn(b);
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === "string") return av.localeCompare(bv) * dir;
+      return (av - bv) * dir;
+    });
+  }
+
+  function renderFacilities(data) {
+    const key = cohortKey();
+    let rows = filteredFacilities(data);
+    const keyFn = (f) => {
+      if (state.sort.key === "name") return f.name;
+      if (state.sort.key === "system") return f.system;
+      if (state.sort.key === "rank") return f[key].rank;
+      if (state.sort.key === "gyn") return f.gynonc_primary_count;
+      return volume(f[key]);
+    };
+    rows = sortRows(rows, keyFn);
+    $("#table-wrap").innerHTML = `
+      <div class="card">
+        <h2>Facilities (${rows.length})</h2>
+        <table>
+          <thead><tr>
+            <th data-k="name">Hospital</th>
+            <th data-k="system">System</th>
+            <th>City</th>
+            <th data-k="rank">Decile</th>
+            <th data-k="volume">Patients</th>
+            <th>Roster</th>
+            <th data-k="gyn">Primary gyn-onc</th>
+            <th>Flags</th>
+          </tr></thead>
+          <tbody>
+            ${rows
+              .map(
+                (f) => `<tr class="clickable" data-poid="${esc(f.poid)}">
+                <td><strong>${esc(shortName(f.name))}</strong><div class="muted">${esc(f.npi)}</div></td>
+                <td>${esc(f.system)}</td>
+                <td>${esc(titleCase(f.city))}</td>
+                <td>${f[key].rank ?? "—"}</td>
+                <td>${fmtCount(f[key])}</td>
+                <td>${f.practitioner_count}</td>
+                <td>${f.gynonc_primary_count}</td>
+                <td>${f.volume_without_primary_gynonc ? '<span class="tag warn">No primary gyn-onc</span>' : ""}
+                    ${f[key].suppressed ? '<span class="tag muted">Suppressed</span>' : ""}</td>
+              </tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>`;
+    $("#table-wrap").querySelectorAll("th[data-k]").forEach((th) => {
+      th.onclick = () => {
+        const k = th.getAttribute("data-k");
+        state.sort.key = k;
+        state.sort.dir = state.sort.dir === -1 && state.sort.key === k ? 1 : -1;
+        render();
+      };
+    });
+    $("#table-wrap").querySelectorAll("tr[data-poid]").forEach((tr) => {
+      tr.onclick = () => openFacility(data, tr.getAttribute("data-poid"));
+    });
+  }
+
+  function titleCase(s) {
+    return String(s || "")
+      .toLowerCase()
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  function renderPractitioners(data) {
+    const key = cohortKey();
+    let rows = filteredPractitioners(data);
+    const q = ($("#prac-search") && $("#prac-search").value.trim().toLowerCase()) || "";
+    if (q) {
+      rows = rows.filter(
+        (p) =>
+          (p.display_name || "").toLowerCase().includes(q) ||
+          (p.specialty_1 || "").toLowerCase().includes(q) ||
+          (p.npi || "").includes(q)
+      );
+    }
+    const funnel = {
+      primary: data.practitioners.filter((p) => p.gynonc_primary).length,
+      any: data.practitioners.filter((p) => p.gynonc_any).length,
+      neither: data.practitioners.filter((p) => !p.gynonc_any).length,
+    };
+    rows = sortRows(rows, (p) => (state.sort.key === "name" ? p.display_name : volume(p[key])));
+    $("#table-wrap").innerHTML = `
+      <div class="card">
+        <h2>Practitioners (${rows.length})</h2>
+        <p class="muted" style="margin:0 0 10px">Gyn-onc labeling funnel: ${funnel.primary} primary · ${funnel.any} any · ${funnel.neither} neither</p>
+        <input id="prac-search" class="search" placeholder="Search name, specialty, NPI" value="${esc(q)}">
+        <table>
+          <thead><tr>
+            <th data-k="name">Name</th>
+            <th>Specialty</th>
+            <th>Gyn-onc</th>
+            <th>City</th>
+            <th data-k="volume">Patients</th>
+            <th>Decile</th>
+            <th>Sites</th>
+          </tr></thead>
+          <tbody>
+            ${rows
+              .map(
+                (p) => `<tr class="clickable" data-piid="${esc(p.piid)}">
+                <td><strong>${esc(p.display_name)}</strong><div class="muted">${esc(p.cred || "")} · ${esc(p.npi)}</div></td>
+                <td>${esc(p.specialty_1 || "—")}${p.specialty_2 ? `<div class="muted">${esc(p.specialty_2)}</div>` : ""}</td>
+                <td><span class="tag ${p.gynonc_primary ? "ok" : p.gynonc_any ? "" : "muted"}">${esc(p.gynonc_label)}</span></td>
+                <td>${esc(titleCase(p.city))}${p.out_of_state ? ' <span class="tag warn">' + esc(p.state) + "</span>" : ""}</td>
+                <td>${fmtCount(p[key])}</td>
+                <td>${p[key].rank ?? "—"}</td>
+                <td>${p.facility_count}</td>
+              </tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>`;
+    const search = $("#prac-search");
+    search.oninput = debounce(() => renderPractitioners(data), 150);
+    $("#table-wrap").querySelectorAll("tr[data-piid]").forEach((tr) => {
+      tr.onclick = () => openPractitioner(data, tr.getAttribute("data-piid"));
+    });
+  }
+
+  function debounce(fn, ms) {
+    let t;
+    return (...args) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...args), ms);
+    };
+  }
+
+  function renderTrust(data) {
+    $("#table-wrap").innerHTML = `<div class="alert-list">${data.alerts
+      .map(
+        (a) => `<article class="alert ${esc(a.severity)}" data-id="${esc(a.id)}">
+          <h3>${esc(a.title)} <span class="tag ${a.severity === "critical" ? "bad" : a.severity === "warning" ? "warn" : ""}">${esc(a.severity)}</span></h3>
+          <p>${esc(a.summary)}</p>
+          <div class="more">${esc(a.detail)}</div>
+          <button class="link" type="button">Why this matters</button>
+        </article>`
+      )
+      .join("")}</div>`;
+    $$(".alert button.link").forEach((btn) => {
+      btn.onclick = () => btn.parentElement.classList.toggle("open");
+    });
+  }
+
+  function renderPhenotype(data) {
+    const q = ($("#code-search") && $("#code-search").value.trim().toLowerCase()) || "";
+    let rows = data.codes;
+    if (q) {
+      rows = rows.filter((c) =>
+        [c.code, c.cohort, c.category, c.description, c.status].join(" ").toLowerCase().includes(q)
+      );
+    }
+    const missing = data.meta.not_in_extract;
+    $("#table-wrap").innerHTML = `
+      <div class="grid-2">
+        <div class="card methods">
+          <h2>What this extract is</h2>
+          <p>${esc(data.meta.banner)}</p>
+          <p>Grain: ${esc(data.meta.grain)}. Geography: ${esc(data.meta.geography)}. Cohorts: ${data.meta.cohorts.map(esc).join(", ")}.</p>
+          <p>Boitano 2024 and Holtzman 2025 (SGO papers in the briefing) describe falling hallmark-procedure volume per gyn-onc. This sample is consistent: ovarian volume is concentrated; radical hysterectomy is almost empty.</p>
+        </div>
+        <div class="card methods">
+          <h2>Not in this extract</h2>
+          <ul>${missing.map((m) => `<li>${esc(m)}</li>`).join("")}</ul>
+          <p>Those buckets need Patient Journey Intelligence (or a health-system cost feed), not MarketView scorecards.</p>
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <h2>Draft phenotype library (${rows.length})</h2>
+        <input id="code-search" class="search" placeholder="Search codes, cohorts, issues" value="${esc(q)}">
+        <table>
+          <thead><tr><th>Cohort</th><th>Type</th><th>Code</th><th>Description</th><th>Status</th></tr></thead>
+          <tbody>
+            ${rows
+              .map(
+                (c) => `<tr>
+                <td>${esc(c.cohort)}</td>
+                <td>${esc(c.code_type)}</td>
+                <td><strong>${esc(c.code)}</strong></td>
+                <td>${esc(c.description || "")}${c.issues.length ? `<div class="muted">${c.issues.map(esc).join(", ")}</div>` : ""}</td>
+                <td><span class="tag ${c.status === "usable" ? "ok" : "warn"}">${esc(c.status)}</span></td>
+              </tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>`;
+    $("#code-search").oninput = debounce(() => renderPhenotype(data), 150);
+  }
+
+  function openFacility(data, poid) {
+    const f = data.facilities.find((x) => x.poid === poid);
+    if (!f) return;
+    const key = cohortKey();
+    const people = data.affiliations
+      .filter((a) => a.poid === poid)
+      .map((a) => ({ a, p: data.practitioners.find((x) => x.piid === a.piid) }))
+      .filter((x) => x.p);
+    $("#drawer").innerHTML = `
+      <button class="ghost btn" type="button" id="close-drawer">Close</button>
+      <h2>${esc(f.name)}</h2>
+      <p class="muted">${esc(f.system)} · ${esc(titleCase(f.city))}, ${esc(f.state)} · NPI ${esc(f.npi)}</p>
+      <p>Patients (${state.cohort}): <strong>${fmtCount(f[key])}</strong> · National decile ${f[key].rank ?? "—"}</p>
+      <p>Roster ${f.practitioner_count} · primary gyn-onc ${f.gynonc_primary_count}
+        ${f.volume_without_primary_gynonc ? '<span class="tag warn">volume without primary gyn-onc</span>' : ""}</p>
+      <table>
+        <thead><tr><th>Practitioner</th><th>Specialty</th><th>Workload</th><th>Patients</th></tr></thead>
+        <tbody>
+          ${people
+            .map(
+              ({ a, p }) => `<tr>
+              <td>${esc(p.display_name)} ${p.gynonc_any ? '<span class="tag ok">gyn-onc</span>' : ""}</td>
+              <td>${esc(p.specialty_1 || "")}</td>
+              <td>${esc(a[key].workload || "—")}</td>
+              <td>${fmtCount(a[key])}</td>
+            </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>`;
+    showDrawer();
+    $("#close-drawer").onclick = hideDrawer;
+  }
+
+  function openPractitioner(data, piid) {
+    const p = data.practitioners.find((x) => x.piid === piid);
+    if (!p) return;
+    const key = cohortKey();
+    const sites = data.affiliations
+      .filter((a) => a.piid === piid)
+      .map((a) => ({ a, f: data.facilities.find((x) => x.poid === a.poid) }))
+      .filter((x) => x.f);
+    $("#drawer").innerHTML = `
+      <button class="ghost btn" type="button" id="close-drawer">Close</button>
+      <h2>${esc(p.display_name)}</h2>
+      <p class="muted">${esc(p.specialty_1 || "")}${p.specialty_2 ? " / " + esc(p.specialty_2) : ""} · NPI ${esc(p.npi)}</p>
+      <p>Gyn-onc label: <span class="tag">${esc(p.gynonc_label)}</span> · Patients: <strong>${fmtCount(p[key])}</strong></p>
+      <table>
+        <thead><tr><th>Facility</th><th>System</th><th>Workload</th><th>Patients</th></tr></thead>
+        <tbody>
+          ${sites
+            .map(
+              ({ a, f }) => `<tr>
+              <td>${esc(shortName(f.name))}</td>
+              <td>${esc(f.system)}</td>
+              <td>${esc(a[key].workload || "—")}</td>
+              <td>${fmtCount(a[key])}</td>
+            </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>`;
+    showDrawer();
+    $("#close-drawer").onclick = hideDrawer;
+  }
+
+  function showDrawer() {
+    $("#drawer-back").classList.add("show");
+    $("#drawer").classList.add("show");
+  }
+  function hideDrawer() {
+    $("#drawer-back").classList.remove("show");
+    $("#drawer").classList.remove("show");
+  }
+
+  function render() {
+    const data = state.data;
+    $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === state.view));
+    const overview = $("#overview-panels");
+    const table = $("#table-wrap");
+    if (state.view === "overview") {
+      overview.classList.remove("hidden");
+      table.classList.add("hidden");
+      renderOverview(data);
+    } else {
+      overview.classList.add("hidden");
+      table.classList.remove("hidden");
+      if (state.view === "facilities") renderFacilities(data);
+      if (state.view === "practitioners") renderPractitioners(data);
+      if (state.view === "trust") renderTrust(data);
+      if (state.view === "phenotype") renderPhenotype(data);
+    }
+  }
+
+  async function init() {
+    const [kpis, meta, facilities, practitioners, affiliations, codes, alerts] = await Promise.all([
+      loadFile("kpis"),
+      loadFile("meta"),
+      loadFile("facilities"),
+      loadFile("practitioners"),
+      loadFile("affiliations"),
+      loadFile("codes"),
+      loadFile("alerts"),
+    ]);
+    state.data = { kpis, meta, facilities, practitioners, affiliations, codes, alerts };
+    $("#banner").textContent = meta.banner;
+    $$(".tab").forEach((t) => {
+      t.onclick = () => {
+        state.view = t.dataset.view;
+        render();
+      };
+    });
+    $("#cohort").onchange = (e) => {
+      state.cohort = e.target.value;
+      render();
+    };
+    $("#system").onchange = (e) => {
+      state.system = e.target.value;
+      render();
+    };
+    $("#gynonc").onchange = (e) => {
+      state.gynonc = e.target.value;
+      render();
+    };
+    $("#drawer-back").onclick = hideDrawer;
+    render();
+  }
+
+  init().catch((err) => {
+    const el = $("#banner");
+    if (el) el.textContent = "Could not load dashboard data. Check that you are still signed in.";
+    console.error(err);
+  });
+})();
