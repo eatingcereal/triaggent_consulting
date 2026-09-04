@@ -12,6 +12,34 @@
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
+  const cssVar = (name, fallback) => {
+    const val = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return val || fallback;
+  };
+  const isDark = () => document.documentElement.getAttribute("data-theme") === "dark";
+  const tileURL = () =>
+    isDark()
+      ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+      : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+  const TILE_OPTS = { attribution: "&copy; OpenStreetMap &copy; CARTO", subdomains: "abcd", maxZoom: 19 };
+  function applyChartTheme() {
+    if (!window.Chart) return;
+    Chart.defaults.color = cssVar("--chart-ink", "#59534b");
+    Chart.defaults.borderColor = cssVar("--chart-grid", "#ece8e1");
+    Chart.defaults.font.family = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+  }
+
+  const VIEW_META = {
+    summary: ["Summary", "Feasibility verdict for the MarketView sample"],
+    opportunity: ["Opportunity", "Ideas, external data, and the data landscape"],
+    overview: ["Overview", "Locations, unsuppressed volume, and specialty mix"],
+    facilities: ["Facilities", "Hospitals in the Minnesota extract"],
+    practitioners: ["Practitioners", "Providers and the gyn-onc funnel"],
+    access: ["Access context", "Public incidence, workforce, and geography"],
+    trust: ["Data trust", "What to verify before interpreting"],
+    phenotype: ["Phenotype & methods", "Draft cohort code library and gaps"],
+  };
+
   async function loadFile(name) {
     const res = await fetch("api.php?file=" + encodeURIComponent(name), {
       credentials: "same-origin",
@@ -72,6 +100,7 @@
 
   function stackedBar(id, labels, datasets) {
     destroyChart(id);
+    applyChartTheme();
     const ctx = document.getElementById(id);
     if (!ctx) return;
     state.charts[id] = new Chart(ctx, {
@@ -81,10 +110,10 @@
         indexAxis: "y",
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { position: "bottom" } },
+        plugins: { legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 8 } } },
         scales: {
-          x: { stacked: true, grid: { color: "#eee" }, ticks: { precision: 0 } },
-          y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 } } },
+          x: { stacked: true, grid: { color: cssVar("--chart-grid", "#ece8e1") }, border: { display: false }, ticks: { precision: 0 } },
+          y: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { font: { size: 11 } } },
         },
       },
     });
@@ -92,13 +121,14 @@
 
   function barChart(id, labels, values, color) {
     destroyChart(id);
+    applyChartTheme();
     const ctx = document.getElementById(id);
     if (!ctx) return;
     state.charts[id] = new Chart(ctx, {
       type: "bar",
       data: {
         labels,
-        datasets: [{ data: values, backgroundColor: color || "#4f46e5", borderRadius: 6, maxBarThickness: 28 }],
+        datasets: [{ data: values, backgroundColor: color || cssVar("--series-1", "#4f46e5"), borderRadius: 5, maxBarThickness: 26 }],
       },
       options: {
         indexAxis: "y",
@@ -106,8 +136,8 @@
         maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
-          x: { grid: { color: "#eee" }, ticks: { precision: 0 } },
-          y: { grid: { display: false }, ticks: { font: { size: 11 } } },
+          x: { grid: { color: cssVar("--chart-grid", "#ece8e1") }, border: { display: false }, ticks: { precision: 0 } },
+          y: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 11 } } },
         },
       },
     });
@@ -121,10 +151,8 @@
       state.map = null;
     }
     const map = L.map(el, { scrollWheelZoom: false }).setView([45.6, -93.4], 6);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "&copy; OpenStreetMap",
-      maxZoom: 18,
-    }).addTo(map);
+    L.tileLayer(tileURL(), TILE_OPTS).addTo(map);
+    const brand = cssVar("--series-1", "#4f46e5");
     const key = cohortKey();
     const nums = facilities.map((f) => volume(f[key])).filter((n) => n > 0);
     const max = Math.max(1, ...nums);
@@ -135,9 +163,9 @@
       const r = v > 0 ? 8 + (Math.sqrt(v / max) * 22) : 8;
       const marker = L.circleMarker([f.lat, f.lon], {
         radius: r,
-        color: suppressed ? "#b45309" : "#4f46e5",
-        fillColor: suppressed ? "#fde68a" : "#4f46e5",
-        fillOpacity: suppressed ? 0.35 : 0.55,
+        color: suppressed ? "#b45309" : brand,
+        fillColor: suppressed ? "#fde68a" : brand,
+        fillOpacity: suppressed ? 0.35 : 0.6,
         weight: 2,
       }).addTo(map);
       marker.bindPopup(
@@ -186,7 +214,7 @@
       "volChart",
       withVol.map((f) => shortName(f.name)),
       withVol.map((f) => f[key].value),
-      "#4f46e5"
+      cssVar("--series-1", "#4f46e5")
     );
 
     const spec = {};
@@ -195,7 +223,7 @@
       spec[s] = (spec[s] || 0) + 1;
     });
     const specRows = Object.entries(spec).sort((a, b) => b[1] - a[1]).slice(0, 8);
-    barChart("specChart", specRows.map((r) => r[0]), specRows.map((r) => r[1]), "#6366f1");
+    barChart("specChart", specRows.map((r) => r[0]), specRows.map((r) => r[1]), cssVar("--series-2", "#1baf7a"));
 
     renderMap(fac);
   }
@@ -404,9 +432,9 @@
       "specStack",
       spec.map((r) => r.specialty),
       [
-        { label: "Numeric", data: spec.map((r) => r.numeric), backgroundColor: "#4f46e5" },
-        { label: "* suppressed", data: spec.map((r) => r.suppressed), backgroundColor: "#fbbf24" },
-        { label: "Blank", data: spec.map((r) => r.blank), backgroundColor: "#d6d3d1" },
+        { label: "Numeric", data: spec.map((r) => r.numeric), backgroundColor: cssVar("--series-1", "#4f46e5") },
+        { label: "* suppressed", data: spec.map((r) => r.suppressed), backgroundColor: cssVar("--series-amber", "#e0902a") },
+        { label: "Blank", data: spec.map((r) => r.blank), backgroundColor: cssVar("--series-muted", "#cfcabf") },
       ]
     );
   }
@@ -487,10 +515,7 @@
     const el = document.getElementById("access-map");
     if (el && window.L) {
       const map = L.map(el, { scrollWheelZoom: false }).setView([46.0, -94.0], 6);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "&copy; OpenStreetMap",
-        maxZoom: 18,
-      }).addTo(map);
+      L.tileLayer(tileURL(), TILE_OPTS).addTo(map);
       counties.forEach((c) => {
         if (c.lat == null) return;
         L.circleMarker([c.lat, c.lon], {
@@ -527,7 +552,7 @@
       "nppesChart",
       (ext.nppes_top_states || []).map((s) => s.state),
       (ext.nppes_top_states || []).map((s) => s.unique_npi1),
-      "#4f46e5"
+      cssVar("--series-1", "#4f46e5")
     );
   }
 
@@ -862,6 +887,13 @@
   function render() {
     const data = state.data;
     $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === state.view));
+    const vm = VIEW_META[state.view];
+    if (vm) {
+      const tt = $("#view-title");
+      if (tt) tt.textContent = vm[0];
+      const ts = $("#view-sub");
+      if (ts) ts.textContent = vm[1];
+    }
     const overview = $("#overview-panels");
     const table = $("#table-wrap");
     if (state.view === "overview") {
@@ -904,6 +936,23 @@
         render();
       };
     });
+    const root = document.documentElement;
+    const syncThemeLabel = () => {
+      const btn = $("#theme-toggle");
+      const lbl = btn && btn.querySelector(".lbl");
+      if (lbl) lbl.textContent = root.getAttribute("data-theme") === "dark" ? "Light" : "Dark";
+    };
+    syncThemeLabel();
+    const tt = $("#theme-toggle");
+    if (tt) {
+      tt.onclick = () => {
+        const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+        root.setAttribute("data-theme", next);
+        try { localStorage.setItem("sgo-theme", next); } catch (e) {}
+        syncThemeLabel();
+        render();
+      };
+    }
     $("#cohort").onchange = (e) => {
       state.cohort = e.target.value;
       render();
