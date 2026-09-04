@@ -1,6 +1,6 @@
 (() => {
   const state = {
-    view: "overview",
+    view: "summary",
     cohort: "ovarian",
     system: "all",
     gynonc: "all",
@@ -68,6 +68,26 @@
       state.charts[id].destroy();
       delete state.charts[id];
     }
+  }
+
+  function stackedBar(id, labels, datasets) {
+    destroyChart(id);
+    const ctx = document.getElementById(id);
+    if (!ctx) return;
+    state.charts[id] = new Chart(ctx, {
+      type: "bar",
+      data: { labels, datasets },
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: "bottom" } },
+        scales: {
+          x: { stacked: true, grid: { color: "#eee" }, ticks: { precision: 0 } },
+          y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 } } },
+        },
+      },
+    });
   }
 
   function barChart(id, labels, values, color) {
@@ -150,12 +170,12 @@
 
     $("#kpi-row").innerHTML = [
       kpi("Hospitals", fac.length, "Acute-care MN extract"),
-      kpi("Practitioners", prac.length, `${gynPri} primary gyn-onc`),
-      kpi("Unsuppressed patients", sum || "—", `${starHosp} hospitals still *`),
+      kpi("Practitioners", prac.length, `${gynPri} primary gyn-onc · ${data.kpis.physicians || "—"} physicians`),
+      kpi("Visible facility cells", sum || "—", `${starHosp} hospitals *; not unique patients`),
       kpi(
-        "Mayo share",
+        "Mayo of visible cells",
         mayo && sum ? Math.round((mayo[key].value / sum) * 100) + "%" : "—",
-        mayo && mayo[key].rank != null ? `National decile ${mayo[key].rank}` : "Not in current filter"
+        mayo && mayo[key].rank != null ? `Decile ${mayo[key].rank} (universe unconfirmed)` : "Not in current filter"
       ),
       kpi("Data-trust alerts", data.alerts.length, `${data.kpis.critical_alerts} critical`, true),
     ].join("");
@@ -230,7 +250,7 @@
             <th data-k="name">Hospital</th>
             <th data-k="system">System</th>
             <th>City</th>
-            <th data-k="rank">Decile</th>
+            <th data-k="rank">Decile*</th>
             <th data-k="volume">Patients</th>
             <th>Roster</th>
             <th data-k="gyn">Primary gyn-onc</th>
@@ -247,8 +267,8 @@
                 <td>${fmtCount(f[key])}</td>
                 <td>${f.practitioner_count}</td>
                 <td>${f.gynonc_primary_count}</td>
-                <td>${f.volume_without_primary_gynonc ? '<span class="tag warn">No primary gyn-onc</span>' : ""}
-                    ${f[key].suppressed ? '<span class="tag muted">Suppressed</span>' : ""}</td>
+                <td>${f.volume_without_any_gynonc ? '<span class="tag bad">No gyn-onc</span>' : f.volume_without_primary_gynonc ? '<span class="tag warn">No primary gyn-onc</span>' : ""}
+                    ${f[key].suppressed ? '<span class="tag muted">*</span>' : f[key].missing ? '<span class="tag muted">Blank</span>' : ""}</td>
               </tr>`
               )
               .join("")}
@@ -295,7 +315,7 @@
     $("#table-wrap").innerHTML = `
       <div class="card">
         <h2>Practitioners (${rows.length})</h2>
-        <p class="muted" style="margin:0 0 10px">Gyn-onc labeling funnel: ${funnel.primary} primary · ${funnel.any} any · ${funnel.neither} neither</p>
+        <p class="muted" style="margin:0 0 10px">Gyn-onc funnel: ${funnel.primary} primary · ${data.kpis.gynonc_secondary_only || 0} secondary-only · ${funnel.neither} neither. Affiliation tab omits secondary specialty — join the practitioner master.</p>
         <input id="prac-search" class="search" placeholder="Search name, specialty, NPI" value="${esc(q)}">
         <table>
           <thead><tr>
@@ -339,6 +359,58 @@
     };
   }
 
+  function renderSummary(data) {
+    const s = data.summary;
+    const k = data.kpis;
+    const spec = s.specialty || [];
+    $("#table-wrap").innerHTML = `
+      <p class="lede">${esc(s.headline)}</p>
+      <div class="verdict">${esc(s.verdict)}</div>
+      <div class="kpis">
+        ${kpi("Visible facility cells", k.ovarian_unsuppressed_patients, "Ovarian · not unique patients")}
+        ${kpi("Gyn-onc any specialty", k.gynonc_any, `${k.gynonc_primary} primary · ${k.gynonc_secondary_only} secondary-only`)}
+        ${kpi("Confirmed RH links", k.confirmed_rh_links, `${k.rh_rank_without_link} ranks with blank link counts`)}
+        ${kpi("Multi-site people", k.multi_facility_practitioners, "2–3 facilities; association not referral")}
+        ${kpi("Alerts", k.open_alerts, `${k.critical_alerts} critical`, true)}
+      </div>
+      <div class="findings">
+        ${s.findings
+          .map(
+            (f) => `<article class="finding ${esc(f.tone)}"><h3>${esc(f.title)}</h3><p>${esc(f.body)}</p></article>`
+          )
+          .join("")}
+      </div>
+      <div class="claim-grid">
+        <div class="card">
+          <h2>What this extract can support</h2>
+          <ul>${s.can_do.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+        </div>
+        <div class="card">
+          <h2>What it cannot support</h2>
+          <ul>${s.cannot_do.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <h2>Ovarian patient cells by primary specialty — numeric vs * vs blank</h2>
+        <p class="muted" style="margin:0 0 8px">Do not add these numeric sums across specialties as unique patients. OB/GYN holds most of the visible numeric cells.</p>
+        <div class="chart-box" style="height:${Math.max(220, spec.length * 28)}px"><canvas id="specStack"></canvas></div>
+      </div>
+      <div class="next">
+        <h2>Recommended next step</h2>
+        <p>${esc(s.next_step)}</p>
+        <ul>${s.questions.map((q) => `<li>${esc(q)}</li>`).join("")}</ul>
+      </div>`;
+    stackedBar(
+      "specStack",
+      spec.map((r) => r.specialty),
+      [
+        { label: "Numeric", data: spec.map((r) => r.numeric), backgroundColor: "#4f46e5" },
+        { label: "* suppressed", data: spec.map((r) => r.suppressed), backgroundColor: "#fbbf24" },
+        { label: "Blank", data: spec.map((r) => r.blank), backgroundColor: "#d6d3d1" },
+      ]
+    );
+  }
+
   function renderTrust(data) {
     $("#table-wrap").innerHTML = `<div class="alert-list">${data.alerts
       .map(
@@ -364,13 +436,14 @@
       );
     }
     const missing = data.meta.not_in_extract;
+    const cb = (data.summary && data.summary.codebook) || {};
     $("#table-wrap").innerHTML = `
       <div class="grid-2">
         <div class="card methods">
           <h2>What this extract is</h2>
           <p>${esc(data.meta.banner)}</p>
           <p>Grain: ${esc(data.meta.grain)}. Geography: ${esc(data.meta.geography)}. Cohorts: ${data.meta.cohorts.map(esc).join(", ")}.</p>
-          <p>Boitano 2024 and Holtzman 2025 (SGO papers in the briefing) describe falling hallmark-procedure volume per gyn-onc. This sample is consistent: ovarian volume is concentrated; radical hysterectomy is almost empty.</p>
+          <p>Workbook audit (Sept 2026): 41 codebook rows, 10 headers / 11 populated columns, CPT 58957 deleted Jan 2025. Boitano/Holtzman motivate a broader value story; they are not dollar benchmarks.</p>
         </div>
         <div class="card methods">
           <h2>Not in this extract</h2>
@@ -380,6 +453,7 @@
       </div>
       <div class="card" style="margin-top:12px">
         <h2>Draft phenotype library (${rows.length})</h2>
+        <p class="muted">${cb.rows || 41} rows · ${cb.unique_codes || 39} distinct codes · ${cb.header_columns || 10} headers / ${cb.actual_columns || 11} populated columns · wildcards ${((cb.wildcards || []).join(", ")) || "C77.x …"}</p>
         <input id="code-search" class="search" placeholder="Search codes, cohorts, issues" value="${esc(q)}">
         <table>
           <thead><tr><th>Cohort</th><th>Type</th><th>Code</th><th>Description</th><th>Status</th></tr></thead>
@@ -413,7 +487,7 @@
       <button class="ghost btn" type="button" id="close-drawer">Close</button>
       <h2>${esc(f.name)}</h2>
       <p class="muted">${esc(f.system)} · ${esc(titleCase(f.city))}, ${esc(f.state)} · NPI ${esc(f.npi)}</p>
-      <p>Patients (${state.cohort}): <strong>${fmtCount(f[key])}</strong> · National decile ${f[key].rank ?? "—"}</p>
+      <p>Patients (${state.cohort}): <strong>${fmtCount(f[key])}</strong> · Decile ${f[key].rank ?? "—"} (universe unconfirmed)</p>
       <p>Roster ${f.practitioner_count} · primary gyn-onc ${f.gynonc_primary_count}
         ${f.volume_without_primary_gynonc ? '<span class="tag warn">volume without primary gyn-onc</span>' : ""}</p>
       <table>
@@ -425,7 +499,7 @@
               <td>${esc(p.display_name)} ${p.gynonc_any ? '<span class="tag ok">gyn-onc</span>' : ""}</td>
               <td>${esc(p.specialty_1 || "")}</td>
               <td>${esc(a[key].workload || "—")}</td>
-              <td>${fmtCount(a[key])}</td>
+              <td>${fmtCount(a[key])}${a.rh_facility_rank_without_link && key === "radical_hysterectomy" ? ' <span class="tag warn">rank only</span>' : ""}</td>
             </tr>`
             )
             .join("")}
@@ -457,7 +531,7 @@
               <td>${esc(shortName(f.name))}</td>
               <td>${esc(f.system)}</td>
               <td>${esc(a[key].workload || "—")}</td>
-              <td>${fmtCount(a[key])}</td>
+              <td>${fmtCount(a[key])}${a.rh_facility_rank_without_link && key === "radical_hysterectomy" ? ' <span class="tag warn">rank only</span>' : ""}</td>
             </tr>`
             )
             .join("")}
@@ -488,6 +562,7 @@
     } else {
       overview.classList.add("hidden");
       table.classList.remove("hidden");
+      if (state.view === "summary") renderSummary(data);
       if (state.view === "facilities") renderFacilities(data);
       if (state.view === "practitioners") renderPractitioners(data);
       if (state.view === "trust") renderTrust(data);
@@ -496,7 +571,7 @@
   }
 
   async function init() {
-    const [kpis, meta, facilities, practitioners, affiliations, codes, alerts] = await Promise.all([
+    const [kpis, meta, facilities, practitioners, affiliations, codes, alerts, summary] = await Promise.all([
       loadFile("kpis"),
       loadFile("meta"),
       loadFile("facilities"),
@@ -504,8 +579,9 @@
       loadFile("affiliations"),
       loadFile("codes"),
       loadFile("alerts"),
+      loadFile("summary"),
     ]);
-    state.data = { kpis, meta, facilities, practitioners, affiliations, codes, alerts };
+    state.data = { kpis, meta, facilities, practitioners, affiliations, codes, alerts, summary };
     $("#banner").textContent = meta.banner;
     $$(".tab").forEach((t) => {
       t.onclick = () => {

@@ -20,6 +20,7 @@ $allowed = [
     'affiliations' => 'affiliations.json.enc',
     'codes' => 'codes.json.enc',
     'alerts' => 'alerts.json.enc',
+    'summary' => 'summary.json.enc',
 ];
 
 $key = (string) ($_GET['file'] ?? '');

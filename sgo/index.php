@@ -91,14 +91,15 @@ $v = static function (string $rel): string {
     </div>
   </div>
   <nav class="tabs">
-    <button class="tab active" type="button" data-view="overview">Overview</button>
+    <button class="tab active" type="button" data-view="summary">Summary</button>
+    <button class="tab" type="button" data-view="overview">Overview</button>
     <button class="tab" type="button" data-view="facilities">Facilities</button>
     <button class="tab" type="button" data-view="practitioners">Practitioners</button>
     <button class="tab" type="button" data-view="trust">Data trust</button>
     <button class="tab" type="button" data-view="phenotype">Phenotype &amp; methods</button>
   </nav>
   <main class="main">
-    <div id="overview-panels">
+    <div id="overview-panels" class="hidden">
       <div class="kpis" id="kpi-row"></div>
       <div class="grid-2">
         <div class="card">
@@ -115,7 +116,7 @@ $v = static function (string $rel): string {
         <div class="chart-box" style="height:280px"><canvas id="specChart"></canvas></div>
       </div>
     </div>
-    <div id="table-wrap" class="hidden"></div>
+    <div id="table-wrap"></div>
   </main>
   <div class="drawer-back" id="drawer-back"></div>
   <aside class="drawer" id="drawer"></aside>
