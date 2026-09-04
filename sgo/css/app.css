@@ -318,6 +318,21 @@ tr.clickable:hover { background: #f5f3ee; }
 .methods p { font-size: 14px; line-height: 1.55; color: var(--ink); }
 .methods ul { color: var(--muted); font-size: 14px; line-height: 1.55; }
 
+.opp .finding h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.opp .finding h3 .tag[style*="float"] { margin-left: auto; float: none !important; }
+.opp .claim-grid > div h2 { color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.opp table td:first-child { width: 34%; }
+.opp .methods ul { margin: 6px 0 0; padding-left: 18px; }
+.opp .methods li { margin-bottom: 4px; }
+@media (max-width: 900px) {
+  .opp table td:first-child { width: auto; }
+}
+
 @media (max-width: 1100px) {
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid-2 { grid-template-columns: 1fr; }

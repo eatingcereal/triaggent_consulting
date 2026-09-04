@@ -92,6 +92,7 @@ $v = static function (string $rel): string {
   </div>
   <nav class="tabs">
     <button class="tab active" type="button" data-view="summary">Summary</button>
+    <button class="tab" type="button" data-view="opportunity">Opportunity</button>
     <button class="tab" type="button" data-view="overview">Overview</button>
     <button class="tab" type="button" data-view="facilities">Facilities</button>
     <button class="tab" type="button" data-view="practitioners">Practitioners</button>

@@ -595,6 +595,195 @@
     $("#code-search").oninput = debounce(() => renderPhenotype(data), 150);
   }
 
+  function renderOpportunity(data) {
+    const k = data.kpis || {};
+    const m = data.meta || {};
+    const primary = k.gynonc_primary != null ? k.gynonc_primary : "9";
+    const any = k.gynonc_any != null ? k.gynonc_any : "28";
+    const notInExtract = (m.not_in_extract || [
+      "Patient / claim identifiers and service dates",
+      "Procedure / diagnosis / revenue codes",
+      "Charge, allowed, paid, or patient-responsibility amounts",
+      "Patient residence, stage, outcomes",
+      "Operating-vs-referring physician role; health-system ID; lat/lon",
+    ]);
+
+    // 1 — Ideas, sequenced by evidence level
+    const phases = [
+      {
+        letter: "A",
+        title: "v0 feasibility demo",
+        evi: "Buildable now",
+        tone: "ok",
+        body:
+          "One clinically reviewed ovarian-debulking phenotype; a provider/facility atlas that respects both specialty fields, masking, and the association network; a hardened draft code library; and a documented data-gaps and methodology-questions list. Proves what the data can support before any dollars.",
+      },
+      {
+        letter: "B",
+        title: "Access & opportunity map (BEI-style)",
+        evi: "Buildable now · public data",
+        tone: "ok",
+        body:
+          "Validated gyn-onc locations (NPPES + SGO) against female-population and cancer burden (ACS, State Cancer Profiles), travel time (OpenStreetMap routing), and rurality / social barriers (RUCA, SVI). Shows modeled potential geographic access — not observed patient travel, referral flow, or leakage.",
+      },
+      {
+        letter: "C",
+        title: "Licensed longitudinal economic model",
+        evi: "Needs licensed claims",
+        tone: "warn",
+        body:
+          "With PJI / detailed claims: index-anchored episodes (candidate 180-day look-back, 90/180/365-day follow-up), each service classified into institutional buckets, tiered attribution, and observed primary-payer allowed/paid amounts translated per bucket under explicit anti-double-count rules. Contribution margin only with agreed revenue and variable-cost inputs.",
+      },
+      {
+        letter: "D",
+        title: "SGO member value tool (Step 3)",
+        evi: "After A–C",
+        tone: "muted",
+        body:
+          "Apply the model to MarketView provider/facility volumes with member-entered local inputs (payer mix, rates, own volumes), keeping source-derived, national-benchmark, user-entered, and calculated values distinct, with a stored model version and an output-to-input reconciliation.",
+      },
+    ];
+
+    // 2a — Geographic / access module (public, buildable now)
+    const geoSources = [
+      ["CMS NPPES + NUCC taxonomy", "Provider/site identity; gyn-onc 207VX0201X", "Free · monthly", "NPI ≠ active surgical service; don't duplicate volume across a provider's sites"],
+      ["Census ACS 5-year (2020–2024)", "Female age denominators, poverty, insurance, vehicle access", "Free · API key", "Period estimates, not cancer patients; small-area uncertainty"],
+      ["Census TIGER/Line", "County / tract / ZCTA geometry for the map", "Free · annual", "ZCTA ≠ postal ZIP; match vintage to ACS"],
+      ["NCI/CDC State Cancer Profiles · USCS · SEER", "Ovarian/cervical/uterine incidence by county", "Free (SEER*Stat gated)", "Suppressed counts ≠ zero; not a surgical-case file"],
+      ["USDA ERS RUCA / RUCC", "Rurality of provider and population areas", "Free", "Describes commuting, not cancer-service shortage"],
+      ["CDC/ATSDR SVI (2022)", "Social-barrier overlay where travel is long", "Free", "Not a validated oncology-access score; avoid double-counting poverty"],
+      ["HRSA Area Health Resources File", "County workforce / facility context", "Free · annual", "Broad OB/GYN supply ≠ gyn-onc availability"],
+      ["OSM + openrouteservice", "30/60-min drive-time & catchment scenarios", "Open / self-host", "Modeled access, not observed trips; hosted isochrones capped ~1 hr"],
+      ["CMS Care Compare + Cost Reports", "Hospital identity/type; coarse cost context", "Free", "Whole-hospital cost ≠ a specialty's contribution margin"],
+      ["SGO program & physician rosters", "Validate qualifying gyn-onc service sites", "Partner-provided", "Public directory is a snapshot, not a census"],
+    ];
+
+    // 2b — Economic / reimbursement layer (rate files + licensed claims)
+    const econSources = [
+      ["CMS PFS RVU files", "Price list — professional + technical; the −26/−TC split is the anti-double-count guardrail", "Free"],
+      ["CMS OPPS Addendum A/B (APC)", "Hospital-outpatient facility rates — imaging technical, infusion admin, outpatient surgery", "Free"],
+      ["CMS IPPS MS-DRG weights", "Inpatient facility payment for debulking / radical-hyst stays", "Free"],
+      ["CMS Part B ASP file (ASP+6%)", "Chemo / immunotherapy drug amounts (generics ≈ $0 margin; value in admin + biologics)", "Free"],
+      ["CMS CLFS", "Labs, tumor markers (CA-125), molecular/genomic", "Free"],
+      ["CMS Physician & Inpatient PUFs", "Real Medicare allowed/paid + volumes per NPI/HCPCS/DRG (no DUA)", "Free"],
+      ["HCUP + cost-to-charge ratios", "All-payer volumes; charges → cost bridge for margin", "Low cost"],
+      ["Medicare Cost Reports (HCRIS)", "Department cost-to-charge ratios (OR, imaging, lab, pharmacy, ICU, radonc)", "Free"],
+      ["FAIR Health / MarketScan / Optum", "Commercial allowed amounts & Medicare-to-commercial multipliers (younger cervical cohort)", "Licensed"],
+      ["SEER-Medicare linked", "Registry-validated stage + Medicare journey with real dollars", "Application / fee"],
+      ["LexisNexis MarketView PJI", "The in-house engine: TOKEN-linked journeys + allowed amounts (see caveats →)", "BData-licensed"],
+    ];
+
+    const methodAnchors = [
+      ["CMS OCM / EOM episode spec", "Defensible public template for an oncology episode — adapt the trigger to an index gyn-onc surgery (ovarian/cervical are outside EOM's 7 cancers)."],
+      ["Merritt Hawkins / AMN survey", "Canonical 'a physician is worth more than their fee' benchmark (~3.3× professional fees) — gyn onc is not broken out, so a claims-based version is the differentiated build."],
+      ["Downstream-revenue studies", "Published attribution recipes (e.g., ASCO 2024 genetics ≈ $4.76M/yr per counselor; AMC downstream ≈ 6× direct) — index event → window → categorized services vs a control."],
+      ["Keepage / leakage method", "Retained value = downstream revenue kept in-network (1 − leakage); needs where patients actually received care + intended referrals."],
+    ];
+
+    const canDo = [
+      "Provider/facility atlas: locations, association network, cohort-presence and both-specialty filters, masking-aware volume/rank",
+      "Workforce distribution: distinct validated gyn-onc providers by facility/area (do not sum people across sites)",
+      "Population-access context: geocoded facilities vs census burden and travel — modeled potential access",
+      "Facility & provider profiles with explicit data-confidence flags",
+    ];
+    const cannotDo = [
+      "Patient journeys, referral flow, leakage, or retained value — an edge is an association, not a referral",
+      "Any payment, revenue, or contribution margin — no dollars, dates, or codes are in this sample",
+      "Unique patient totals — visible cells are not additive across providers/facilities and * has no stated threshold",
+      "Market share, statewide completeness, or trend — no sampling frame, observation window, or 'G1' definition",
+    ];
+
+    const phaseCards = phases
+      .map(
+        (p) =>
+          `<article class="finding ${p.tone}">
+             <h3><span class="tag ${p.tone === "muted" ? "muted" : p.tone}">${p.letter}</span> ${esc(p.title)}
+               <span class="tag ${p.tone === "ok" ? "ok" : p.tone === "warn" ? "warn" : "muted"}" style="float:right">${esc(p.evi)}</span></h3>
+             <p>${esc(p.body)}</p>
+           </article>`
+      )
+      .join("");
+
+    const geoRows = geoSources
+      .map(
+        (r) =>
+          `<tr><td><strong>${esc(r[0])}</strong><div class="muted">${esc(r[3])}</div></td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`
+      )
+      .join("");
+
+    const econRows = econSources
+      .map(
+        (r) => `<tr><td><strong>${esc(r[0])}</strong></td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`
+      )
+      .join("");
+
+    const methodRows = methodAnchors
+      .map((r) => `<li><strong>${esc(r[0])}</strong> — ${esc(r[1])}</li>`)
+      .join("");
+
+    $("#table-wrap").innerHTML = `
+      <div class="opp">
+      <p class="lede">One-pager: what we can build for SGO, the external data that feeds it, and exactly what today's MarketView sample does and does not support.</p>
+      <div class="verdict"><strong>Read this as three evidence levels.</strong> The sample supports a provider/facility atlas and an access map; the licensed economic model needs detailed claims. Nothing here derives revenue from the current sample, and payment figures below are external rate references, not measured hospital revenue.</div>
+
+      <div class="card">
+        <h2>1 · What we can build</h2>
+        <p class="muted" style="margin:0 0 10px">Sequenced by evidence level — start where the data already supports a defensible result.</p>
+        <div class="findings">${phaseCards}</div>
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <h2>2 · External data we can bring in</h2>
+        <p class="muted" style="margin:0 0 8px"><strong>2a · Geographic / access module — public, buildable now.</strong> "Free" describes access, not staff time; freeze each release's dictionary before use.</p>
+        <table>
+          <thead><tr><th>Source</th><th>Role</th><th>Access</th></tr></thead>
+          <tbody>${geoRows}</tbody>
+        </table>
+        <p class="muted" style="margin:14px 0 8px"><strong>2b · Economic / reimbursement layer — to translate utilization into dollars in the licensed model.</strong> One rate file per institutional bucket; the −26/−TC split keeps other specialties' professional fees out.</p>
+        <table>
+          <thead><tr><th>Source</th><th>Role</th><th>Access</th></tr></thead>
+          <tbody>${econRows}</tbody>
+        </table>
+        <div class="methods" style="margin-top:12px">
+          <h2 style="font-size:13px">Methodology anchors (published, defensible)</h2>
+          <ul>${methodRows}</ul>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <h2>3 · The data landscape</h2>
+        <div class="claim-grid">
+          <div>
+            <h2 style="font-size:13px">This MarketView sample supports</h2>
+            <ul>${canDo.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+          </div>
+          <div>
+            <h2 style="font-size:13px">It cannot support</h2>
+            <ul>${cannotDo.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+          </div>
+        </div>
+        <p class="muted" style="margin:12px 0 8px">Headline finding: <strong>${esc(String(primary))} primary vs ${esc(String(any))} any-field gyn-onc</strong> — and the practitioner–facility tab carries primary specialty only, so join the master before filtering.</p>
+        <div class="findings">
+          <article class="finding"><h3><span class="tag">Layer 1</span> MarketView rollup — <em>who &amp; where</em> (this sample)</h3><p>Provider- and facility-grain scorecards: decile ranks, masked patient cells, and workload buckets for two cohorts. Broad coverage, no depth.</p></article>
+          <article class="finding warn"><h3><span class="tag warn">Layer 2</span> Patient Journey Intelligence — <em>why &amp; how much</em> (licensed)</h3><p>Per-patient claims with allowed amounts. Caveats from the spec: it is a <strong>specification</strong>, not a delivered extract; most fields are optional; there is <strong>no referring/ordering NPI</strong> (so ordered-service attribution is not automatic); and CHARGE/PAID/ALLOWED are claim-level totals repeated on each line — never summed or added together.</p></article>
+          <article class="finding ok"><h3><span class="tag ok">Layer 3</span> Public rate, geo &amp; cost files — <em>translate &amp; contextualize</em></h3><p>CMS rate files, census/geography, cancer burden, and cost-to-charge ratios turn utilization into benchmarked dollars and put the map in context — all free.</p></article>
+        </div>
+        <p class="muted" style="margin:12px 0 0"><strong>Not in this sample:</strong> ${notInExtract.map((x) => esc(x)).join(" · ")}. Those need PJI/detailed claims or a health-system cost feed — not more rows of the same scorecard. Restricted source files stay out of this repository.</p>
+      </div>
+
+      <div class="next">
+        <h2>Decisions that size the first sprint</h2>
+        <ul>
+          <li>Is the primary deliverable the access/opportunity map, the advocacy economic model, or a combined product with separate evidence levels?</li>
+          <li>Confirm PJI/MarketView as the Step-1 engine: coverage, payer mix, geography, patient/episode linkage, provider roles, and allowed/paid fields.</li>
+          <li>What does the MarketView <em>Patients</em> cell count, what is the <em>*</em> suppression rule, and how are the deciles defined?</li>
+          <li>Does "economic value" mean professional work, payer spending, hospital revenue, or contribution margin? Each needs different data.</li>
+          <li>Can SGO validate the qualifying gyn-onc service sites and provide the journey-mapping / incidence work it has offered?</li>
+        </ul>
+      </div>
+      </div>`;
+  }
+
   function openFacility(data, poid) {
     const f = data.facilities.find((x) => x.poid === poid);
     if (!f) return;
@@ -683,6 +872,7 @@
       overview.classList.add("hidden");
       table.classList.remove("hidden");
       if (state.view === "summary") renderSummary(data);
+      if (state.view === "opportunity") renderOpportunity(data);
       if (state.view === "access") renderAccess(data);
       if (state.view === "facilities") renderFacilities(data);
       if (state.view === "practitioners") renderPractitioners(data);
