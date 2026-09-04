@@ -333,7 +333,7 @@
                 (p) => `<tr class="clickable" data-piid="${esc(p.piid)}">
                 <td><strong>${esc(p.display_name)}</strong><div class="muted">${esc(p.cred || "")} · ${esc(p.npi)}</div></td>
                 <td>${esc(p.specialty_1 || "—")}${p.specialty_2 ? `<div class="muted">${esc(p.specialty_2)}</div>` : ""}</td>
-                <td><span class="tag ${p.gynonc_primary ? "ok" : p.gynonc_any ? "" : "muted"}">${esc(p.gynonc_label)}</span></td>
+                <td><span class="tag ${p.gynonc_primary ? "ok" : p.gynonc_any ? "" : "muted"}">${esc(p.gynonc_label)}</span>${p.nppes_gynonc ? ' <span class="tag ok">NPPES 207VX0201X</span>' : p.gynonc_primary ? ' <span class="tag warn">not in NPPES</span>' : ""}</td>
                 <td>${esc(titleCase(p.city))}${p.out_of_state ? ' <span class="tag warn">' + esc(p.state) + "</span>" : ""}</td>
                 <td>${fmtCount(p[key])}</td>
                 <td>${p[key].rank ?? "—"}</td>
@@ -408,6 +408,126 @@
         { label: "* suppressed", data: spec.map((r) => r.suppressed), backgroundColor: "#fbbf24" },
         { label: "Blank", data: spec.map((r) => r.blank), backgroundColor: "#d6d3d1" },
       ]
+    );
+  }
+
+  function ovaryColor(rate) {
+    if (rate == null) return "#d6d3d1";
+    if (rate < 8) return "#c7d2fe";
+    if (rate < 10) return "#818cf8";
+    if (rate < 12) return "#4f46e5";
+    return "#312e81";
+  }
+
+  function renderAccess(data) {
+    const ext = data.external;
+    const counties = data.mn_counties || [];
+    const cms = data.facility_cms || [];
+    const nppes = data.nppes_mn || [];
+    const nat = ext.national;
+    const mn = ext.minnesota;
+    const join = ext.sample_join;
+    $("#table-wrap").innerHTML = `
+      <div class="kpis">
+        ${kpi("US ovary AAIR", nat.ovary_aair, `${nat.ovary_annual_cases.toLocaleString()} cases/year · 2018–2022`)}
+        ${kpi("US cervix / uterus", `${nat.cervix_aair} / ${nat.uterus_aair}`, `${nat.cervix_annual_cases.toLocaleString()} / ${nat.uterus_annual_cases.toLocaleString()} cases`)}
+        ${kpi("MN NPPES GynOnc", mn.nppes_gynonc_npi1, `${mn.rural_counties} of ${mn.counties} counties non-metro`)}
+        ${kpi("Sample ∩ NPPES", join.practitioners_nppes_gynonc + "/77", `${join.marketview_primary_gynonc_missing_nppes}/9 primary labels missing`)}
+        ${kpi("CMS ZIP matches", join.facilities_matched_cms_zip + "/12", "Name strings differ; ZIP joins")}
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <h2>Minnesota counties — ovarian AAIR (centroids)</h2>
+          <p class="muted">Gray = suppressed/missing rate. Indigo markers = sample hospitals. Rural mean AAIR ${mn.rural_ovary_aair} vs metro ${mn.metro_ovary_aair}. County rates are not the sample's surgical volume.</p>
+          <div id="access-map" style="height:380px;border-radius:12px;background:#edf0ea"></div>
+        </div>
+        <div class="card">
+          <h2>NPPES unique GynOnc (NPI-1) by state</h2>
+          <div class="chart-box"><canvas id="nppesChart"></canvas></div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <h2>Sample hospitals joined to CMS + Medicare GynOnc office price</h2>
+        <table>
+          <thead><tr><th>Hospital</th><th>CCN</th><th>County</th><th>Type / ownership</th><th>New-visit $</th><th>Nearest NPPES km</th></tr></thead>
+          <tbody>
+            ${cms
+              .map(
+                (f) => `<tr>
+                <td><strong>${esc(shortName(f.name))}</strong><div class="muted">${esc(f.cms_name || "")}</div></td>
+                <td>${esc(f.cms_ccn || "—")}</td>
+                <td>${esc(f.county || "—")}</td>
+                <td>${esc(f.cms_type || "")}<div class="muted">${esc(f.cms_ownership || "")}</div></td>
+                <td>${f.medicare_new_visit != null ? "$" + f.medicare_new_visit : "—"}</td>
+                <td>${f.nearest_nppes_gynonc_km != null ? f.nearest_nppes_gynonc_km : "—"}</td>
+              </tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <h2>Minnesota NPPES individual GynOnc NPIs (${nppes.length})</h2>
+        <p class="muted">Taxonomy 207VX0201X, NPI-1 only. Public registry; not a capacity census. Phones stripped.</p>
+        <table>
+          <thead><tr><th>Name</th><th>NPI</th><th>City</th><th>ZIP</th></tr></thead>
+          <tbody>
+            ${nppes
+              .map(
+                (p) => `<tr><td>${esc(p.name)}</td><td>${esc(p.npi)}</td><td>${esc(p.city)}</td><td>${esc(p.zip)}</td></tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>`;
+    if (state.map) {
+      state.map.remove();
+      state.map = null;
+    }
+    const el = document.getElementById("access-map");
+    if (el && window.L) {
+      const map = L.map(el, { scrollWheelZoom: false }).setView([46.0, -94.0], 6);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap",
+        maxZoom: 18,
+      }).addTo(map);
+      counties.forEach((c) => {
+        if (c.lat == null) return;
+        L.circleMarker([c.lat, c.lon], {
+          radius: c.ovary_count ? 4 + Math.min(10, Math.sqrt(c.ovary_count) * 2) : 4,
+          color: ovaryColor(c.ovary_rate),
+          fillColor: ovaryColor(c.ovary_rate),
+          fillOpacity: c.ovary_rate == null ? 0.25 : 0.7,
+          weight: 1,
+        })
+          .addTo(map)
+          .bindPopup(
+            `<strong>${esc(c.name)}</strong><br>RUCC ${c.rucc ?? "—"} ${c.metro ? "(metro)" : "(non-metro)"}<br>` +
+              `Ovary AAIR ${c.ovary_rate ?? "*"} · avg count ${c.ovary_count ?? "*"}<br>` +
+              `Cervix ${c.cervix_rate ?? "*"} · Uterus ${c.uterus_rate ?? "*"}<br>` +
+              `Poverty ${c.poverty_pct ?? "—"}%`
+          );
+      });
+      (data.facilities || []).forEach((f) => {
+        if (f.lat == null) return;
+        L.circleMarker([f.lat, f.lon], {
+          radius: 8,
+          color: "#111827",
+          fillColor: "#f59e0b",
+          fillOpacity: 0.9,
+          weight: 2,
+        })
+          .addTo(map)
+          .bindPopup(`<strong>${esc(f.name)}</strong><br>Sample hospital`);
+      });
+      state.map = map;
+      setTimeout(() => map.invalidateSize(), 80);
+    }
+    barChart(
+      "nppesChart",
+      (ext.nppes_top_states || []).map((s) => s.state),
+      (ext.nppes_top_states || []).map((s) => s.unique_npi1),
+      "#4f46e5"
     );
   }
 
@@ -563,6 +683,7 @@
       overview.classList.add("hidden");
       table.classList.remove("hidden");
       if (state.view === "summary") renderSummary(data);
+      if (state.view === "access") renderAccess(data);
       if (state.view === "facilities") renderFacilities(data);
       if (state.view === "practitioners") renderPractitioners(data);
       if (state.view === "trust") renderTrust(data);
@@ -571,7 +692,7 @@
   }
 
   async function init() {
-    const [kpis, meta, facilities, practitioners, affiliations, codes, alerts, summary] = await Promise.all([
+    const [kpis, meta, facilities, practitioners, affiliations, codes, alerts, summary, mn_counties, facility_cms, nppes_mn, external] = await Promise.all([
       loadFile("kpis"),
       loadFile("meta"),
       loadFile("facilities"),
@@ -580,8 +701,12 @@
       loadFile("codes"),
       loadFile("alerts"),
       loadFile("summary"),
+      loadFile("mn_counties"),
+      loadFile("facility_cms"),
+      loadFile("nppes_mn"),
+      loadFile("external"),
     ]);
-    state.data = { kpis, meta, facilities, practitioners, affiliations, codes, alerts, summary };
+    state.data = { kpis, meta, facilities, practitioners, affiliations, codes, alerts, summary, mn_counties, facility_cms, nppes_mn, external };
     $("#banner").textContent = meta.banner;
     $$(".tab").forEach((t) => {
       t.onclick = () => {

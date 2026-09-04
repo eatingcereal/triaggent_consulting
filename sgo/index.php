@@ -95,6 +95,7 @@ $v = static function (string $rel): string {
     <button class="tab" type="button" data-view="overview">Overview</button>
     <button class="tab" type="button" data-view="facilities">Facilities</button>
     <button class="tab" type="button" data-view="practitioners">Practitioners</button>
+    <button class="tab" type="button" data-view="access">Access context</button>
     <button class="tab" type="button" data-view="trust">Data trust</button>
     <button class="tab" type="button" data-view="phenotype">Phenotype &amp; methods</button>
   </nav>

@@ -21,6 +21,10 @@ $allowed = [
     'codes' => 'codes.json.enc',
     'alerts' => 'alerts.json.enc',
     'summary' => 'summary.json.enc',
+    'mn_counties' => 'mn_counties.json.enc',
+    'facility_cms' => 'facility_cms.json.enc',
+    'nppes_mn' => 'nppes_mn.json.enc',
+    'external' => 'external.json.enc',
 ];
 
 $key = (string) ($_GET['file'] ?? '');
