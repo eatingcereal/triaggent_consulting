@@ -1,0 +1,19 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+
+# env / secrets
+.env
+.env.local
+.env*.local
+
+# decrypted sample data — never commit to the public repo
+/data/*.json
+
+# misc
+*.tsbuildinfo
+.DS_Store
