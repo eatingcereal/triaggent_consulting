@@ -143,6 +143,7 @@ $v = static function (string $rel): string {
     <div class="banner" id="banner"></div>
     <main class="main">
       <div id="overview-panels" class="hidden">
+        <p id="overview-note" class="muted"></p>
         <div class="kpis" id="kpi-row"></div>
         <div class="grid-2">
           <div class="card">
@@ -150,12 +151,13 @@ $v = static function (string $rel): string {
             <div id="map"></div>
           </div>
           <div class="card">
-            <h2>Unsuppressed volume</h2>
+            <h2>Visible facility patient cells</h2>
+            <p class="muted">Only numeric cells are plotted. Masked and blank counts remain unknown; no annual or unique-patient total is implied.</p>
             <div class="chart-box"><canvas id="volChart"></canvas></div>
           </div>
         </div>
         <div class="card" style="margin-top:14px">
-          <h2>Specialty mix in the extract</h2>
+          <h2>Primary-specialty mix in the practitioner selection</h2>
           <div class="chart-box" style="height:280px"><canvas id="specChart"></canvas></div>
         </div>
       </div>
