@@ -283,7 +283,7 @@ body.app {
 .topbar .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .topbar .spacer { flex: 1; }
 
-.filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
 .filters > div { display: flex; flex-direction: column; }
 .filters label { font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
 .filters select {
@@ -540,6 +540,14 @@ td .muted, .muted { color: var(--muted); font-size: 12px; }
 }
 
 /* ---------------------------------------------------------- responsive --- */
+.research-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.table-scroll { overflow-x: auto; }
+.main .card { min-width: 0; overflow-x: auto; }
+.card a { color: var(--brand); text-decoration: underline; }
+.methods h3 { font-size: 14px; margin: 18px 0 4px; }
+#overview-note { font-size: 13px; line-height: 1.6; }
+.content { min-width: 0; }
+@media (max-width: 1180px) { .research-grid { grid-template-columns: 1fr; } }
 @media (max-width: 1180px) {
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid-2 { grid-template-columns: 1fr; }

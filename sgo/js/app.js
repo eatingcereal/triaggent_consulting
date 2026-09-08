@@ -32,7 +32,7 @@
   const VIEW_META = {
     summary: ["Summary", "Feasibility verdict for the MarketView sample"],
     opportunity: ["Opportunity", "Ideas, external data, and the data landscape"],
-    overview: ["Overview", "Locations, unsuppressed volume, and specialty mix"],
+    overview: ["Overview", "Source patient cells, cohort presence, and specialty labels"],
     facilities: ["Facilities", "Hospitals in the Minnesota extract"],
     practitioners: ["Practitioners", "Providers and the gyn-onc funnel"],
     access: ["Access context", "Public incidence, workforce, and geography"],
@@ -82,13 +82,13 @@
         data.affiliations
           .filter((a) => {
             const fac = data.facilities.find((f) => f.poid === a.poid);
-            return fac && fac.system === state.system;
+            return fac && fac.system === state.system && !a[cohortKey()].missing;
           })
           .map((a) => a.piid)
       );
       rows = rows.filter((p) => ids.has(p.piid));
     }
-    return rows;
+    return rows.filter((p) => !p[cohortKey()].missing);
   }
 
   function destroyChart(id) {
@@ -160,18 +160,19 @@
       if (f.lat == null || f.lon == null) return;
       const v = volume(f[key]);
       const suppressed = f[key].suppressed;
+      const missing = f[key].missing;
       const r = v > 0 ? 8 + (Math.sqrt(v / max) * 22) : 8;
       const marker = L.circleMarker([f.lat, f.lon], {
         radius: r,
-        color: suppressed ? "#b45309" : brand,
-        fillColor: suppressed ? "#fde68a" : brand,
+        color: missing ? "#78716c" : suppressed ? "#b45309" : brand,
+        fillColor: missing ? "#d6d3d1" : suppressed ? "#fde68a" : brand,
         fillOpacity: suppressed ? 0.35 : 0.6,
         weight: 2,
       }).addTo(map);
       marker.bindPopup(
         `<strong>${esc(f.name)}</strong><br>${esc(f.system)} · ${esc(f.city)}<br>` +
           `Patients: ${fmtCount(f[key])}` +
-          (f[key].rank != null ? `<br>National decile: ${f[key].rank}` : "")
+          (f[key].rank != null ? `<br>Source decile: ${f[key].rank} (universe unconfirmed)` : "")
       );
     });
     state.map = map;
@@ -192,19 +193,15 @@
     const key = cohortKey();
     const unsup = fac.map((f) => f[key].value).filter((v) => v != null);
     const sum = unsup.reduce((a, b) => a + b, 0);
-    const mayo = fac.find((f) => f.name && f.name.includes("MAYO"));
     const gynPri = prac.filter((p) => p.gynonc_primary).length;
     const starHosp = fac.filter((f) => f[key].suppressed).length;
+    const blankHosp = fac.filter((f) => f[key].missing).length;
 
     $("#kpi-row").innerHTML = [
       kpi("Hospitals", fac.length, "Acute-care MN extract"),
-      kpi("Practitioners", prac.length, `${gynPri} primary gyn-onc · ${data.kpis.physicians || "—"} physicians`),
-      kpi("Visible facility cells", sum || "—", `${starHosp} hospitals *; not unique patients`),
-      kpi(
-        "Mayo of visible cells",
-        mayo && sum ? Math.round((mayo[key].value / sum) * 100) + "%" : "—",
-        mayo && mayo[key].rank != null ? `Decile ${mayo[key].rank} (universe unconfirmed)` : "Not in current filter"
-      ),
+      kpi("Cohort-present practitioners", prac.length, `${gynPri} primary gyn-onc · ${prac.filter(p => p.physician).length} physicians in this selection`),
+      kpi("Visible facility-cell sum", unsup.length ? sum : "—", `${unsup.length} numeric · ${starHosp} masked · ${blankHosp} blank; not unique patients`),
+      kpi("Nonblank facility cells", fac.length - blankHosp, "Numeric or masked; no clinical confirmation"),
       kpi("Data-trust alerts", data.alerts.length, `${data.kpis.critical_alerts} critical`, true),
     ].join("");
 
@@ -222,7 +219,8 @@
       const s = p.specialty_1 || "Unknown";
       spec[s] = (spec[s] || 0) + 1;
     });
-    const specRows = Object.entries(spec).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    const specRows = Object.entries(spec).sort((a, b) => b[1] - a[1]);
+    $("#specChart").parentElement.style.height = Math.max(280, specRows.length * 28) + "px";
     barChart("specChart", specRows.map((r) => r[0]), specRows.map((r) => r[1]), cssVar("--series-2", "#1baf7a"));
 
     renderMap(fac);
@@ -267,12 +265,13 @@
       if (state.sort.key === "system") return f.system;
       if (state.sort.key === "rank") return f[key].rank;
       if (state.sort.key === "gyn") return f.gynonc_primary_count;
-      return volume(f[key]);
+      return f[key].value;
     };
     rows = sortRows(rows, keyFn);
     $("#table-wrap").innerHTML = `
       <div class="card">
         <h2>Facilities (${rows.length})</h2>
+        <p class="muted">All sample hospitals in the selected system, including blank cohort cells. Roster counts cover all exported associations and both specialties; they are not staffing totals. System labels and map coordinates are unvalidated app enrichments. Source decile universe is unknown.</p>
         <table>
           <thead><tr>
             <th data-k="name">Hospital</th>
@@ -280,8 +279,9 @@
             <th>City</th>
             <th data-k="rank">Decile*</th>
             <th data-k="volume">Patients</th>
-            <th>Roster</th>
+            <th>Exported roster</th>
             <th data-k="gyn">Primary gyn-onc</th>
+            <th>Any-field gyn-onc</th>
             <th>Flags</th>
           </tr></thead>
           <tbody>
@@ -295,7 +295,8 @@
                 <td>${fmtCount(f[key])}</td>
                 <td>${f.practitioner_count}</td>
                 <td>${f.gynonc_primary_count}</td>
-                <td>${f.volume_without_any_gynonc ? '<span class="tag bad">No gyn-onc</span>' : f.volume_without_primary_gynonc ? '<span class="tag warn">No primary gyn-onc</span>' : ""}
+                <td>${f.gynonc_any_count}</td>
+                <td>${f.gynonc_any_count === 0 ? '<span class="tag warn">No gyn-onc label in roster</span>' : f.gynonc_primary_count === 0 ? '<span class="tag warn">Secondary labels only</span>' : ""}
                     ${f[key].suppressed ? '<span class="tag muted">*</span>' : f[key].missing ? '<span class="tag muted">Blank</span>' : ""}</td>
               </tr>`
               )
@@ -306,8 +307,8 @@
     $("#table-wrap").querySelectorAll("th[data-k]").forEach((th) => {
       th.onclick = () => {
         const k = th.getAttribute("data-k");
+        state.sort.dir = state.sort.key === k ? -state.sort.dir : (k === "name" || k === "system" ? 1 : -1);
         state.sort.key = k;
-        state.sort.dir = state.sort.dir === -1 && state.sort.key === k ? 1 : -1;
         render();
       };
     });
@@ -330,20 +331,20 @@
       rows = rows.filter(
         (p) =>
           (p.display_name || "").toLowerCase().includes(q) ||
-          (p.specialty_1 || "").toLowerCase().includes(q) ||
+          [p.specialty_1, p.specialty_2].join(" ").toLowerCase().includes(q) ||
           (p.npi || "").includes(q)
       );
     }
     const funnel = {
-      primary: data.practitioners.filter((p) => p.gynonc_primary).length,
-      any: data.practitioners.filter((p) => p.gynonc_any).length,
-      neither: data.practitioners.filter((p) => !p.gynonc_any).length,
+      primary: rows.filter((p) => p.gynonc_primary).length,
+      any: rows.filter((p) => p.gynonc_any).length,
+      neither: rows.filter((p) => !p.gynonc_any).length,
     };
-    rows = sortRows(rows, (p) => (state.sort.key === "name" ? p.display_name : volume(p[key])));
+    rows = sortRows(rows, (p) => (state.sort.key === "name" ? p.display_name : p[key].value));
     $("#table-wrap").innerHTML = `
       <div class="card">
         <h2>Practitioners (${rows.length})</h2>
-        <p class="muted" style="margin:0 0 10px">Gyn-onc funnel: ${funnel.primary} primary · ${data.kpis.gynonc_secondary_only || 0} secondary-only · ${funnel.neither} neither. Affiliation tab omits secondary specialty — join the practitioner master.</p>
+        <p class="muted" style="margin:0 0 10px">Current selection: ${funnel.primary} primary · ${funnel.any - funnel.primary} secondary-only · ${funnel.neither} neither. Only practitioners with nonblank cohort patient cells are shown; system filtering also requires a nonblank link cell. Blank means unknown, not absence of care. Patient counts remain practitioner-wide; they are not allocated to the selected system. Decile universe is unconfirmed.</p>
         <input id="prac-search" class="search" placeholder="Search name, specialty, NPI" value="${esc(q)}">
         <table>
           <thead><tr>
@@ -361,7 +362,7 @@
                 (p) => `<tr class="clickable" data-piid="${esc(p.piid)}">
                 <td><strong>${esc(p.display_name)}</strong><div class="muted">${esc(p.cred || "")} · ${esc(p.npi)}</div></td>
                 <td>${esc(p.specialty_1 || "—")}${p.specialty_2 ? `<div class="muted">${esc(p.specialty_2)}</div>` : ""}</td>
-                <td><span class="tag ${p.gynonc_primary ? "ok" : p.gynonc_any ? "" : "muted"}">${esc(p.gynonc_label)}</span>${p.nppes_gynonc ? ' <span class="tag ok">NPPES 207VX0201X</span>' : p.gynonc_primary ? ' <span class="tag warn">not in NPPES</span>' : ""}</td>
+                <td><span class="tag ${p.gynonc_primary ? "ok" : p.gynonc_any ? "" : "muted"}">${esc(p.gynonc_label)}</span>${p.nppes_gynonc ? ' <span class="tag ok">NPPES extract match</span>' : p.gynonc_any ? ' <span class="tag warn">No match in taxonomy extract</span>' : ""}</td>
                 <td>${esc(titleCase(p.city))}${p.out_of_state ? ' <span class="tag warn">' + esc(p.state) + "</span>" : ""}</td>
                 <td>${fmtCount(p[key])}</td>
                 <td>${p[key].rank ?? "—"}</td>
@@ -373,7 +374,20 @@
         </table>
       </div>`;
     const search = $("#prac-search");
-    search.oninput = debounce(() => renderPractitioners(data), 150);
+    search.oninput = debounce(() => {
+      const pos = search.selectionStart;
+      renderPractitioners(data);
+      $("#prac-search").focus();
+      $("#prac-search").setSelectionRange(pos, pos);
+    }, 150);
+    $("#table-wrap").querySelectorAll("th[data-k]").forEach((th) => {
+      th.onclick = () => {
+        const key = th.dataset.k;
+        state.sort.dir = state.sort.key === key ? -state.sort.dir : (key === "name" ? 1 : -1);
+        state.sort.key = key;
+        renderPractitioners(data);
+      };
+    });
     $("#table-wrap").querySelectorAll("tr[data-piid]").forEach((tr) => {
       tr.onclick = () => openPractitioner(data, tr.getAttribute("data-piid"));
     });
@@ -387,144 +401,57 @@
     };
   }
 
+  function researchCards(data) {
+    return (data.summary.research || []).map((r) => `<article class="card methods">
+      <h2>${esc(r.title)}</h2><p>${esc(r.body)}</p><p><strong>Interpretation:</strong> ${esc(r.caveat)}</p>
+      <p class="muted">${esc(r.source)}${r.url ? ` · <a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">Publication</a>` : ""}</p>
+    </article>`).join("");
+  }
+
+  function sourceInventory(data) {
+    return `<div class="card"><h2>Available evidence and proposed additions</h2>
+      <div class="table-scroll"><table><thead><tr><th>Status</th><th>Sources</th><th>Interpretation</th></tr></thead>
+      <tbody>${(data.summary.source_inventory || []).map((r) => `<tr>${r.map((v) => `<td>${esc(v)}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>`;
+  }
+
+  function countStates(rows, key) {
+    return { numeric: rows.filter((r) => r[key].value != null).length,
+      masked: rows.filter((r) => r[key].suppressed).length,
+      blank: rows.filter((r) => r[key].missing).length,
+      sum: rows.some((r) => r[key].value != null) ? rows.reduce((n, r) => n + (r[key].value ?? 0), 0) : null };
+  }
+
   function renderSummary(data) {
     const s = data.summary;
     const k = data.kpis;
-    const spec = s.specialty || [];
-    const nPrac = (data.practitioners || []).length || 77;
-    const nFac = (data.facilities || []).length || 12;
-    const nLink = (data.affiliations || []).length || 87;
-
-    // (1) What the dataset entails — fields present vs absent
-    const present = [
-      "Provider & facility IDs (NPI)",
-      "Names · credential",
-      "Specialty 1 + 2",
-      "Practice address / ZIP",
-      "Decile rank (per cohort)",
-      "Patient count — masked *",
-      "Workload band",
-    ];
-    const absent = (data.meta && data.meta.not_in_extract) || [
-      "Procedure / diagnosis codes",
-      "Service dates",
-      "Charge / allowed / paid $",
-      "Patient residence · stage",
-      "Outcomes",
-      "Referring-vs-operating role",
-    ];
-
-    // (2) Possibilities — capability ladder by data tier
-    const tiers = [
-      { k: "Have now", t: "MarketView sample", c: ["Provider / facility atlas", "Workforce distribution", "Association network", "Masking-aware volume"], tone: "var(--muted)" },
-      { k: "More rows", t: "National MarketView", c: ["National provider coverage", "Catchment context", "Peer benchmarking"], gate: "Same schema, wider geography", tone: "#8f88e6" },
-      { k: "New data", t: "+ PJI / detailed claims", c: ["Longitudinal journeys", "Service classification", "Observed allowed / paid $", "Program attribution"], gate: "TOKEN · dates · codes · $", tone: "#6a5cf0" },
-      { k: "New data", t: "+ cost & benchmarks", c: ["Contribution margin", "Payer-mix blending", "Member customization"], gate: "Cost accounting inputs", tone: "#4f46e5" },
-    ];
-
-    // (3) External datasets to layer in
-    const extCats = [
-      ["Geographic & access", 11, "NPPES · ACS · TIGER · SEER/USCS · RUCA · SVI · HRSA · OSRM · Care Compare"],
-      ["Medicare rate files", 5, "PFS · OPPS/APC · IPPS DRG · Part B ASP · CLFS"],
-      ["Cost & benchmark", 3, "HCUP + cost-to-charge · Medicare Cost Reports · FAIR Health"],
-      ["Licensed claims", 6, "PJI/MarketView · SEER-Medicare · MarketScan · Optum · MN APCD"],
-    ];
-
-    const stat = (n, l) => `<div class="mini"><b>${n}</b><span>${l}</span></div>`;
-    const chip = (t, on) => `<span class="chip ${on ? "on" : "off"}">${esc(t)}</span>`;
-    const step = (x) =>
-      `<div class="step" style="--tier:${x.tone}">
-         <div class="tier-k">${esc(x.k)}</div>
-         <h4>${esc(x.t)}</h4>
-         <ul>${x.c.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>
-         ${x.gate ? `<div class="gate">↑ ${esc(x.gate)}</div>` : ""}
-       </div>`;
-
+    const rows = [["Practitioner", data.practitioners], ["Facility", data.facilities], ["Association", data.affiliations]];
+    const completeness = rows.flatMap(([grain, records]) => ["ovarian", "radical_hysterectomy"].map((key) => {
+      const c = countStates(records, key);
+      return `<tr><td>${grain}</td><td>${key === "ovarian" ? "Ovarian" : "Radical hysterectomy"}</td><td>${records.length}</td><td>${c.numeric}</td><td>${c.masked}</td><td>${c.blank}</td><td>${c.sum ?? "—"}</td></tr>`;
+    })).join("");
     $("#table-wrap").innerHTML = `
-      <p class="lede">${esc(s.headline)}</p>
-      <div class="verdict">${esc(s.verdict)}</div>
+      <p class="lede">${esc(s.headline)}</p><div class="verdict">${esc(s.verdict)}</div>
+      <p class="muted">Whole-sample research brief · reviewed ${esc(data.meta.research_review_date)} · filters apply only to Explore views.</p>
       <div class="kpis">
-        ${kpi("Gyn-onc any specialty", k.gynonc_any, `${k.gynonc_primary} primary · ${k.gynonc_secondary_only} secondary-only`)}
-        ${kpi("Visible facility cells", k.ovarian_unsuppressed_patients, "Ovarian · not unique patients")}
-        ${kpi("Confirmed RH links", k.confirmed_rh_links, `${k.rh_rank_without_link} ranks, blank counts`)}
-        ${kpi("Multi-site people", k.multi_facility_practitioners, "association, not referral")}
-        ${kpi("Alerts", k.open_alerts, `${k.critical_alerts} critical`, true)}
+        ${kpi("Practitioners", data.practitioners.length, `${k.physicians} physicians · ${k.physician_assistants ?? 4} physician assistants`)}
+        ${kpi("Gyn-onc labels", k.gynonc_any, `${k.gynonc_primary} primary · ${k.gynonc_secondary_only} secondary-only; not validated capacity`)}
+        ${kpi("Sample hospitals", data.facilities.length, "Minnesota · completeness unknown")}
+        ${kpi("RH nonblank links", k.confirmed_rh_links, "Masked patient cells; not confirmed operations")}
+        ${kpi("Draft code entries", data.codes.length, `${new Set(data.codes.map(c => c.code)).size} distinct tokens; clinical review required`)}
       </div>
-
-      <section class="sum-section">
-        <div class="section-head"><span class="eyebrow">The sample</span><h2>What this dataset entails</h2><span class="sub">A provider/facility scorecard — no patient, claim, or dollar rows</span></div>
-        <div class="stat-strip">
-          ${stat(nPrac, "practitioners (73 MD · 4 PA)")}
-          ${stat(nFac, "MN acute-care hospitals")}
-          ${stat(nLink, "provider–facility links")}
-          ${stat(2, "cohorts (ovarian · radical)")}
-          ${stat(41, "draft phenotype codes")}
-        </div>
-        <div class="grid-2" style="margin-top:0">
-          <div class="card">
-            <h2>Fields in the extract</h2>
-            <div class="fieldmap">
-              <div><h4 class="on-h">Present</h4><div class="chips">${present.map((t) => chip(t, true)).join("")}</div></div>
-              <div><h4 class="off-h">Absent</h4><div class="chips">${absent.map((t) => chip(t, false)).join("")}</div></div>
-            </div>
-          </div>
-          <div class="card">
-            <h2>Ovarian patient cells by specialty</h2>
-            <p class="muted" style="margin:0 0 6px">Numeric vs * vs blank. Do not add across specialties as unique patients.</p>
-            <div class="chart-box" style="height:${Math.max(200, spec.length * 26)}px"><canvas id="specStack"></canvas></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="sum-section">
-        <div class="section-head"><span class="eyebrow">Upside</span><h2>Possibilities with the full dataset</h2><span class="sub">Each tier unlocks new analysis — more rows ≠ new capabilities</span></div>
-        <div class="ladder">${tiers.map(step).join("")}</div>
-      </section>
-
-      <section class="sum-section">
-        <div class="section-head"><span class="eyebrow">Augment</span><h2>External datasets to layer in</h2><span class="sub">Public + licensed sources that add geography, price, and journeys</span></div>
-        <div class="grid-2" style="margin-top:0">
-          <div class="card">
-            <h2>Sources by category</h2>
-            <div class="chart-box" style="height:220px"><canvas id="extChart"></canvas></div>
-          </div>
-          <div class="card">
-            <h2>What each category brings</h2>
-            <div class="srccats">
-              ${extCats
-                .map(
-                  (c) => `<div class="srccat"><div class="srccat-h"><span class="dot"></span>${esc(c[0])} <em>${c[1]}</em></div><p>${esc(c[2])}</p></div>`
-                )
-                .join("")}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="sum-section">
-        <div class="claim-grid">
-          <div class="card"><h2>What this extract can support</h2><ul>${s.can_do.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
-          <div class="card"><h2>What it cannot support</h2><ul>${s.cannot_do.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
-        </div>
-      </section>
-
+      <section class="sum-section"><div class="section-head"><span class="eyebrow">Research</span><h2>What the supplied evidence establishes</h2></div>
+        <div class="research-grid">${researchCards(data)}</div></section>
+      <section class="sum-section"><div class="card"><h2>Counts reconciled to the workbook</h2>
+        <p class="muted">Numeric, masked and blank are distinct states. The sums below describe visible cells at each grain; they are not unique patients and must not be added across grains. No observation period is supplied.</p>
+        <div class="table-scroll"><table><thead><tr><th>Grain</th><th>Cohort</th><th>Rows</th><th>Numeric</th><th>Masked *</th><th>Blank —</th><th>Visible-cell sum</th></tr></thead><tbody>${completeness}</tbody></table></div>
+        <p class="muted">All 87 practitioner–facility keys join. For radical hysterectomy, 38 links have a copied facility rank but a blank link count. Associations are not referrals.</p>
+      </div></section>
+      <section class="sum-section"><div class="claim-grid">
+        <div class="card"><h2>Supported now</h2><ul>${s.can_do.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>
+        <div class="card"><h2>Evidence still needed</h2><ul>${s.cannot_do.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>
+      </div></section>
+      <section class="sum-section">${sourceInventory(data)}</section>
       <div class="next"><h2>Recommended next step</h2><p>${esc(s.next_step)}</p></div>`;
-
-    stackedBar(
-      "specStack",
-      spec.map((r) => r.specialty),
-      [
-        { label: "Numeric", data: spec.map((r) => r.numeric), backgroundColor: cssVar("--series-1", "#4f46e5") },
-        { label: "* suppressed", data: spec.map((r) => r.suppressed), backgroundColor: cssVar("--series-amber", "#e0902a") },
-        { label: "Blank", data: spec.map((r) => r.blank), backgroundColor: cssVar("--series-muted", "#cfcabf") },
-      ]
-    );
-    barChart(
-      "extChart",
-      extCats.map((c) => c[0]),
-      extCats.map((c) => c[1]),
-      cssVar("--series-1", "#4f46e5")
-    );
   }
 
   function ovaryColor(rate) {
@@ -545,27 +472,29 @@
     const join = ext.sample_join;
     $("#table-wrap").innerHTML = `
       <div class="kpis">
-        ${kpi("US ovary AAIR", nat.ovary_aair, `${nat.ovary_annual_cases.toLocaleString()} cases/year · 2018–2022`)}
-        ${kpi("US cervix / uterus", `${nat.cervix_aair} / ${nat.uterus_aair}`, `${nat.cervix_annual_cases.toLocaleString()} / ${nat.uterus_annual_cases.toLocaleString()} cases`)}
-        ${kpi("MN NPPES GynOnc", mn.nppes_gynonc_npi1, `${mn.rural_counties} of ${mn.counties} counties non-metro`)}
+        ${kpi("US ovary AAIR / 100k", nat.ovary_aair, `${nat.ovary_annual_cases.toLocaleString()} average cases/year · 2018–2022`)}
+        ${kpi("US cervix / uterus AAIR", `${nat.cervix_aair} / ${nat.uterus_aair}`, "Per 100,000 women · 2018–2022; not surgical rates")}
+        ${kpi("MN NPPES extract NPIs", mn.nppes_gynonc_npi1, `Individuals with taxonomy; ${mn.rural_counties}/${mn.counties} counties non-metro`)}
         ${kpi("Sample ∩ NPPES", join.practitioners_nppes_gynonc + "/77", `${join.marketview_primary_gynonc_missing_nppes}/9 primary labels missing`)}
-        ${kpi("CMS ZIP matches", join.facilities_matched_cms_zip + "/12", "Name strings differ; ZIP joins")}
+        ${kpi("CMS candidate matches", join.facilities_matched_cms_zip + "/12", "ZIP/name heuristic; crosswalk unvalidated")}
       </div>
       <div class="grid-2">
         <div class="card">
           <h2>Minnesota counties — ovarian AAIR (centroids)</h2>
-          <p class="muted">Gray = suppressed/missing rate. Indigo markers = sample hospitals. Rural mean AAIR ${mn.rural_ovary_aair} vs metro ${mn.metro_ovary_aair}. County rates are not the sample's surgical volume.</p>
+          <p class="muted">2018–2022 age-adjusted incidence per 100,000 women. Gray = suppressed or missing; orange = sample hospitals. Dots are county reference points, not patient locations. No travel time, catchment or local capacity is measured.</p>
           <div id="access-map" style="height:380px;border-radius:12px;background:#edf0ea"></div>
         </div>
         <div class="card">
-          <h2>NPPES unique GynOnc (NPI-1) by state</h2>
+          <h2>Leading states in the supplied taxonomy extract</h2>
+          <p class="muted">Taxonomy 207VX0201X, NPI-1. One NPI counted per state where a location appears; multi-state NPIs can appear in multiple bars. Extract coverage is unconfirmed; this is not national workforce or clinical capacity.</p>
           <div class="chart-box"><canvas id="nppesChart"></canvas></div>
         </div>
       </div>
       <div class="card" style="margin-top:12px">
-        <h2>Sample hospitals joined to CMS + Medicare GynOnc office price</h2>
+        <h2>Candidate CMS matches and office-visit price context</h2>
+        <p class="muted">ZIP/name matches need a validated NPI–CCN crosswalk. CMS office-visit values are locality benchmarks from the supplied snapshot; pricing year and billing assumptions need confirmation. They are not surgical-episode payments, collections or margin. Provider distances are withheld pending validated practice geocoding.</p>
         <table>
-          <thead><tr><th>Hospital</th><th>CCN</th><th>County</th><th>Type / ownership</th><th>New-visit $</th><th>Nearest NPPES km</th></tr></thead>
+          <thead><tr><th>Hospital</th><th>Candidate CCN</th><th>County</th><th>Type / ownership</th><th>New-visit benchmark $</th></tr></thead>
           <tbody>
             ${cms
               .map(
@@ -575,7 +504,6 @@
                 <td>${esc(f.county || "—")}</td>
                 <td>${esc(f.cms_type || "")}<div class="muted">${esc(f.cms_ownership || "")}</div></td>
                 <td>${f.medicare_new_visit != null ? "$" + f.medicare_new_visit : "—"}</td>
-                <td>${f.nearest_nppes_gynonc_km != null ? f.nearest_nppes_gynonc_km : "—"}</td>
               </tr>`
               )
               .join("")}
@@ -681,15 +609,16 @@
         <div class="card methods">
           <h2>Not in this extract</h2>
           <ul>${missing.map((m) => `<li>${esc(m)}</li>`).join("")}</ul>
-          <p>Those buckets need Patient Journey Intelligence (or a health-system cost feed), not MarketView scorecards.</p>
+          <p>Different gaps need different sources: suitable licensed claims for patient/event histories, operational data for coordination and referrals, registry data for stage/outcomes, and local accounting for costs. No single feed guarantees all of these.</p>
         </div>
       </div>
       <div class="card" style="margin-top:12px">
         <h2>Draft phenotype library (${rows.length})</h2>
-        <p class="muted">${cb.rows || 41} rows · ${cb.unique_codes || 39} distinct codes · ${cb.header_columns || 10} headers / ${cb.actual_columns || 11} populated columns · wildcards ${((cb.wildcards || []).join(", ")) || "C77.x …"}</p>
+        <p class="muted">${cb.rows || 41} entries · ${cb.unique_codes || 39} distinct tokens · ${cb.header_columns || 10} headers / ${cb.actual_columns || 11} populated columns. Descriptions below preserve the supplied draft and may be incorrect. No entry is an approved surgical phenotype. Historical coding flags require review against the service-year code set; wildcard families require explicit expansion.</p>
+        <p class="muted">Review 58943 (not pelvic exenteration), 58953 (initial rather than recurrent malignancy surgery), 58957 (deleted for 2025), and 44139 (mobilization add-on, not a separate bowel resection). Reference: supplied Research Review §5 and <a href="https://www.sgo.org/resources/coding-qa-ovarian-cancer-or-masses/" target="_blank" rel="noopener noreferrer">SGO coding guidance</a>. Core/companion roles, malignant diagnoses, co-occurrence and code year require clinical approval.</p>
         <input id="code-search" class="search" placeholder="Search codes, cohorts, issues" value="${esc(q)}">
         <table>
-          <thead><tr><th>Cohort</th><th>Type</th><th>Code</th><th>Description</th><th>Status</th></tr></thead>
+          <thead><tr><th>Cohort</th><th>Type</th><th>Code</th><th>Supplied draft description</th><th>Review status</th></tr></thead>
           <tbody>
             ${rows
               .map(
@@ -698,203 +627,50 @@
                 <td>${esc(c.code_type)}</td>
                 <td><strong>${esc(c.code)}</strong></td>
                 <td>${esc(c.description || "")}${c.issues.length ? `<div class="muted">${c.issues.map(esc).join(", ")}</div>` : ""}</td>
-                <td><span class="tag ${c.status === "usable" ? "ok" : "warn"}">${esc(c.status)}</span></td>
+                <td><span class="tag warn">${esc(c.status === "usable" ? "draft — clinical review required" : c.status)}</span></td>
               </tr>`
               )
               .join("")}
           </tbody>
         </table>
       </div>`;
-    $("#code-search").oninput = debounce(() => renderPhenotype(data), 150);
+    const search = $("#code-search");
+    search.oninput = debounce(() => {
+      const pos = search.selectionStart;
+      renderPhenotype(data);
+      $("#code-search").focus();
+      $("#code-search").setSelectionRange(pos, pos);
+    }, 150);
   }
 
   function renderOpportunity(data) {
-    const k = data.kpis || {};
-    const m = data.meta || {};
-    const primary = k.gynonc_primary != null ? k.gynonc_primary : "9";
-    const any = k.gynonc_any != null ? k.gynonc_any : "28";
-    const notInExtract = (m.not_in_extract || [
-      "Patient / claim identifiers and service dates",
-      "Procedure / diagnosis / revenue codes",
-      "Charge, allowed, paid, or patient-responsibility amounts",
-      "Patient residence, stage, outcomes",
-      "Operating-vs-referring physician role; health-system ID; lat/lon",
-    ]);
-
-    // 1 — Ideas, sequenced by evidence level
     const phases = [
-      {
-        letter: "A",
-        title: "v0 feasibility demo",
-        evi: "Buildable now",
-        tone: "ok",
-        body:
-          "One clinically reviewed ovarian-debulking phenotype; a provider/facility atlas that respects both specialty fields, masking, and the association network; a hardened draft code library; and a documented data-gaps and methodology-questions list. Proves what the data can support before any dollars.",
-      },
-      {
-        letter: "B",
-        title: "Access & opportunity map (BEI-style)",
-        evi: "Buildable now · public data",
-        tone: "ok",
-        body:
-          "Validated gyn-onc locations (NPPES + SGO) against female-population and cancer burden (ACS, State Cancer Profiles), travel time (OpenStreetMap routing), and rurality / social barriers (RUCA, SVI). Shows modeled potential geographic access — not observed patient travel, referral flow, or leakage.",
-      },
-      {
-        letter: "C",
-        title: "Licensed longitudinal economic model",
-        evi: "Needs licensed claims",
-        tone: "warn",
-        body:
-          "With PJI / detailed claims: index-anchored episodes (candidate 180-day look-back, 90/180/365-day follow-up), each service classified into institutional buckets, tiered attribution, and observed primary-payer allowed/paid amounts translated per bucket under explicit anti-double-count rules. Contribution margin only with agreed revenue and variable-cost inputs.",
-      },
-      {
-        letter: "D",
-        title: "SGO member value tool (Step 3)",
-        evi: "After A–C",
-        tone: "muted",
-        body:
-          "Apply the model to MarketView provider/facility volumes with member-entered local inputs (payer mix, rates, own volumes), keeping source-derived, national-benchmark, user-entered, and calculated values distinct, with a stored model version and an output-to-input reconciliation.",
-      },
+      ["1 · Feasibility and methodology", "Current priority", "Use the verified sample atlas to resolve the vendor dictionary, suppression, cohort definition and observation window. Review an ovarian phenotype with SGO; no code in the current library is clinically approved by this app."],
+      ["2 · Detailed economic model", "Needs suitable licensed data", "Obtain dated inpatient and outpatient claims with patient linkage and validated financial fields. Define episodes, reconcile claims and test attribution. A wider MarketView summary export does not supply these missing fields."],
+      ["3 · Member customization", "Needs validated transport and local inputs", "Apply the approved episode model to compatible summary measures. Label source values, national benchmarks, member assumptions and calculated scenarios; reconcile outputs to inputs. Local finance owners define collections and variable costs."],
+      ["Complement · Access and institutional value", "Context available; extensions conditional", "Use the existing public incidence, registry, rurality and poverty layers as context. Travel-time modeling, current service-site validation and workforce forecasts require additional data and scope. Access is not a prerequisite for the economic model."]
     ];
-
-    // 2a — Geographic / access module (public, buildable now)
-    const geoSources = [
-      ["CMS NPPES + NUCC taxonomy", "Provider/site identity; gyn-onc 207VX0201X", "Free · monthly", "NPI ≠ active surgical service; don't duplicate volume across a provider's sites"],
-      ["Census ACS 5-year (2020–2024)", "Female age denominators, poverty, insurance, vehicle access", "Free · API key", "Period estimates, not cancer patients; small-area uncertainty"],
-      ["Census TIGER/Line", "County / tract / ZCTA geometry for the map", "Free · annual", "ZCTA ≠ postal ZIP; match vintage to ACS"],
-      ["NCI/CDC State Cancer Profiles · USCS · SEER", "Ovarian/cervical/uterine incidence by county", "Free (SEER*Stat gated)", "Suppressed counts ≠ zero; not a surgical-case file"],
-      ["USDA ERS RUCA / RUCC", "Rurality of provider and population areas", "Free", "Describes commuting, not cancer-service shortage"],
-      ["CDC/ATSDR SVI (2022)", "Social-barrier overlay where travel is long", "Free", "Not a validated oncology-access score; avoid double-counting poverty"],
-      ["HRSA Area Health Resources File", "County workforce / facility context", "Free · annual", "Broad OB/GYN supply ≠ gyn-onc availability"],
-      ["OSM + openrouteservice", "30/60-min drive-time & catchment scenarios", "Open / self-host", "Modeled access, not observed trips; hosted isochrones capped ~1 hr"],
-      ["CMS Care Compare + Cost Reports", "Hospital identity/type; coarse cost context", "Free", "Whole-hospital cost ≠ a specialty's contribution margin"],
-      ["SGO program & physician rosters", "Validate qualifying gyn-onc service sites", "Partner-provided", "Public directory is a snapshot, not a census"],
+    const domains = [
+      ["Consultation and diagnosis", "Visits, tests and diagnostic utilization may be observed in detailed claims. Referral intake, tumor board, treatment planning, navigation and unbilled review effort need operational or member inputs."],
+      ["Surgical care", "Validated procedures can describe activity. Deduplicate operations and distinguish professional/facility, attending, assistant and co-surgeon roles. Complexity, OR resources, coordination and learner exposure need additional evidence."],
+      ["Treatment, survivorship and end of life", "Longitudinal claims can describe captured treatment and follow-up. Infusion billing does not establish who directs care; trials, palliative coordination and non-billed work need local sources. Allow recurrence, repeated phases and pathways without surgery."]
     ];
-
-    // 2b — Economic / reimbursement layer (rate files + licensed claims)
-    const econSources = [
-      ["CMS PFS RVU files", "Price list — professional + technical; the −26/−TC split is the anti-double-count guardrail", "Free"],
-      ["CMS OPPS Addendum A/B (APC)", "Hospital-outpatient facility rates — imaging technical, infusion admin, outpatient surgery", "Free"],
-      ["CMS IPPS MS-DRG weights", "Inpatient facility payment for debulking / radical-hyst stays", "Free"],
-      ["CMS Part B ASP file (ASP+6%)", "Chemo / immunotherapy drug amounts (generics ≈ $0 margin; value in admin + biologics)", "Free"],
-      ["CMS CLFS", "Labs, tumor markers (CA-125), molecular/genomic", "Free"],
-      ["CMS Physician & Inpatient PUFs", "Real Medicare allowed/paid + volumes per NPI/HCPCS/DRG (no DUA)", "Free"],
-      ["HCUP + cost-to-charge ratios", "All-payer volumes; charges → cost bridge for margin", "Low cost"],
-      ["Medicare Cost Reports (HCRIS)", "Department cost-to-charge ratios (OR, imaging, lab, pharmacy, ICU, radonc)", "Free"],
-      ["FAIR Health / MarketScan / Optum", "Commercial allowed amounts & Medicare-to-commercial multipliers (younger cervical cohort)", "Licensed"],
-      ["SEER-Medicare linked", "Registry-validated stage + Medicare journey with real dollars", "Application / fee"],
-      ["LexisNexis MarketView PJI", "The in-house engine: TOKEN-linked journeys + allowed amounts (see caveats →)", "BData-licensed"],
-    ];
-
-    const methodAnchors = [
-      ["CMS OCM / EOM episode spec", "Defensible public template for an oncology episode — adapt the trigger to an index gyn-onc surgery (ovarian/cervical are outside EOM's 7 cancers)."],
-      ["Merritt Hawkins / AMN survey", "Canonical 'a physician is worth more than their fee' benchmark (~3.3× professional fees) — gyn onc is not broken out, so a claims-based version is the differentiated build."],
-      ["Downstream-revenue studies", "Published attribution recipes (e.g., ASCO 2024 genetics ≈ $4.76M/yr per counselor; AMC downstream ≈ 6× direct) — index event → window → categorized services vs a control."],
-      ["Keepage / leakage method", "Retained value = downstream revenue kept in-network (1 − leakage); needs where patients actually received care + intended referrals."],
-    ];
-
-    const canDo = [
-      "Provider/facility atlas: locations, association network, cohort-presence and both-specialty filters, masking-aware volume/rank",
-      "Workforce distribution: distinct validated gyn-onc providers by facility/area (do not sum people across sites)",
-      "Population-access context: geocoded facilities vs census burden and travel — modeled potential access",
-      "Facility & provider profiles with explicit data-confidence flags",
-    ];
-    const cannotDo = [
-      "Patient journeys, referral flow, leakage, or retained value — an edge is an association, not a referral",
-      "Any payment, revenue, or contribution margin — no dollars, dates, or codes are in this sample",
-      "Unique patient totals — visible cells are not additive across providers/facilities and * has no stated threshold",
-      "Market share, statewide completeness, or trend — no sampling frame, observation window, or 'G1' definition",
-    ];
-
-    const phaseCards = phases
-      .map(
-        (p) =>
-          `<article class="finding ${p.tone}">
-             <h3><span class="tag ${p.tone === "muted" ? "muted" : p.tone}">${p.letter}</span> ${esc(p.title)}
-               <span class="tag ${p.tone === "ok" ? "ok" : p.tone === "warn" ? "warn" : "muted"}" style="float:right">${esc(p.evi)}</span></h3>
-             <p>${esc(p.body)}</p>
-           </article>`
-      )
-      .join("");
-
-    const geoRows = geoSources
-      .map(
-        (r) =>
-          `<tr><td><strong>${esc(r[0])}</strong><div class="muted">${esc(r[3])}</div></td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`
-      )
-      .join("");
-
-    const econRows = econSources
-      .map(
-        (r) => `<tr><td><strong>${esc(r[0])}</strong></td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`
-      )
-      .join("");
-
-    const methodRows = methodAnchors
-      .map((r) => `<li><strong>${esc(r[0])}</strong> — ${esc(r[1])}</li>`)
-      .join("");
-
-    $("#table-wrap").innerHTML = `
-      <div class="opp">
-      <p class="lede">One-pager: what we can build for SGO, the external data that feeds it, and exactly what today's MarketView sample does and does not support.</p>
-      <div class="verdict"><strong>Read this as three evidence levels.</strong> The sample supports a provider/facility atlas and an access map; the licensed economic model needs detailed claims. Nothing here derives revenue from the current sample, and payment figures below are external rate references, not measured hospital revenue.</div>
-
-      <div class="card">
-        <h2>1 · What we can build</h2>
-        <p class="muted" style="margin:0 0 10px">Sequenced by evidence level — start where the data already supports a defensible result.</p>
-        <div class="findings">${phaseCards}</div>
-      </div>
-
-      <div class="card" style="margin-top:12px">
-        <h2>2 · External data we can bring in</h2>
-        <p class="muted" style="margin:0 0 8px"><strong>2a · Geographic / access module — public, buildable now.</strong> "Free" describes access, not staff time; freeze each release's dictionary before use.</p>
-        <table>
-          <thead><tr><th>Source</th><th>Role</th><th>Access</th></tr></thead>
-          <tbody>${geoRows}</tbody>
-        </table>
-        <p class="muted" style="margin:14px 0 8px"><strong>2b · Economic / reimbursement layer — to translate utilization into dollars in the licensed model.</strong> One rate file per institutional bucket; the −26/−TC split keeps other specialties' professional fees out.</p>
-        <table>
-          <thead><tr><th>Source</th><th>Role</th><th>Access</th></tr></thead>
-          <tbody>${econRows}</tbody>
-        </table>
-        <div class="methods" style="margin-top:12px">
-          <h2 style="font-size:13px">Methodology anchors (published, defensible)</h2>
-          <ul>${methodRows}</ul>
-        </div>
-      </div>
-
-      <div class="card" style="margin-top:12px">
-        <h2>3 · The data landscape</h2>
-        <div class="claim-grid">
-          <div>
-            <h2 style="font-size:13px">This MarketView sample supports</h2>
-            <ul>${canDo.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
-          </div>
-          <div>
-            <h2 style="font-size:13px">It cannot support</h2>
-            <ul>${cannotDo.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
-          </div>
-        </div>
-        <p class="muted" style="margin:12px 0 8px">Headline finding: <strong>${esc(String(primary))} primary vs ${esc(String(any))} any-field gyn-onc</strong> — and the practitioner–facility tab carries primary specialty only, so join the master before filtering.</p>
-        <div class="findings">
-          <article class="finding"><h3><span class="tag">Layer 1</span> MarketView rollup — <em>who &amp; where</em> (this sample)</h3><p>Provider- and facility-grain scorecards: decile ranks, masked patient cells, and workload buckets for two cohorts. Broad coverage, no depth.</p></article>
-          <article class="finding warn"><h3><span class="tag warn">Layer 2</span> Patient Journey Intelligence — <em>why &amp; how much</em> (licensed)</h3><p>Per-patient claims with allowed amounts. Caveats from the spec: it is a <strong>specification</strong>, not a delivered extract; most fields are optional; there is <strong>no referring/ordering NPI</strong> (so ordered-service attribution is not automatic); and CHARGE/PAID/ALLOWED are claim-level totals repeated on each line — never summed or added together.</p></article>
-          <article class="finding ok"><h3><span class="tag ok">Layer 3</span> Public rate, geo &amp; cost files — <em>translate &amp; contextualize</em></h3><p>CMS rate files, census/geography, cancer burden, and cost-to-charge ratios turn utilization into benchmarked dollars and put the map in context — all free.</p></article>
-        </div>
-        <p class="muted" style="margin:12px 0 0"><strong>Not in this sample:</strong> ${notInExtract.map((x) => esc(x)).join(" · ")}. Those need PJI/detailed claims or a health-system cost feed — not more rows of the same scorecard. Restricted source files stay out of this repository.</p>
-      </div>
-
-      <div class="next">
-        <h2>Decisions that size the first sprint</h2>
-        <ul>
-          <li>Is the primary deliverable the access/opportunity map, the advocacy economic model, or a combined product with separate evidence levels?</li>
-          <li>Confirm PJI/MarketView as the Step-1 engine: coverage, payer mix, geography, patient/episode linkage, provider roles, and allowed/paid fields.</li>
-          <li>What does the MarketView <em>Patients</em> cell count, what is the <em>*</em> suppression rule, and how are the deciles defined?</li>
-          <li>Does "economic value" mean professional work, payer spending, hospital revenue, or contribution margin? Each needs different data.</li>
-          <li>Can SGO validate the qualifying gyn-onc service sites and provide the journey-mapping / incidence work it has offered?</li>
-        </ul>
-      </div>
-      </div>`;
+    $("#table-wrap").innerHTML = `<div class="opp">
+      <p class="lede">An editable institutional value toolkit, supported by an auditable economic model.</p>
+      <div class="verdict">The August 22 clarification puts economic modeling and data methodology first. The May committee deck supplies the care/value framework; the workforce papers motivate questions but provide no dollar benchmark.</div>
+      <section class="sum-section"><div class="claim-grid">${phases.map(p => `<article class="card methods"><h2>${esc(p[0])}</h2><span class="tag">${esc(p[1])}</span><p>${esc(p[2])}</p></article>`).join("")}</div></section>
+      <section class="sum-section"><div class="section-head"><h2>Three care domains, with different evidence needs</h2></div><div class="research-grid">${domains.map(d => `<article class="card methods"><h2>${esc(d[0])}</h2><p>${esc(d[1])}</p></article>`).join("")}</div><p class="muted">Source: May 19 FOP committee deck, slides 6–8. These are proposed value domains, not reconstructed patient journeys.</p></section>
+      <section class="sum-section"><div class="card methods"><h2>Rules for the economic model</h2>${(data.summary.financial_rules || []).map(r => `<h3>${esc(r[0])}</h3><p>${esc(r[1])}</p>`).join("")}
+        <p class="muted">Source: August onboarding slides 4–8; supplied 2022 PJI layout; corrected Scope and Methods. Project license and delivery are unconfirmed. General <a href="https://risk.lexisnexis.com/products/patient-journey-intelligence" target="_blank" rel="noopener noreferrer">PJI product capabilities</a> do not establish the fields or coverage of BData’s eventual license.</p>
+      </div></section>
+      <section class="sum-section">${sourceInventory(data)}</section>
+      <div class="next"><h2>Decisions for the first milestone</h2><ul>
+        <li>Confirm acceptance criteria and clinical, methodology and finance owners.</li>
+        <li>Obtain the MarketView observation period, Patients definition, suppression rule and rank universe.</li>
+        <li>Verify detailed-claims availability, payer/setting coverage, patient linkage, claim adjustments and payment completeness.</li>
+        <li>Approve the ovarian code-year phenotype and distinguish observed payment from modeled revenue or margin.</li>
+        <li>Identify member inputs for non-billed coordination, staffing, education and local finance; version the model and its assumptions.</li>
+      </ul></div></div>`;
   }
 
   function openFacility(data, poid) {
@@ -910,8 +686,8 @@
       <h2>${esc(f.name)}</h2>
       <p class="muted">${esc(f.system)} · ${esc(titleCase(f.city))}, ${esc(f.state)} · NPI ${esc(f.npi)}</p>
       <p>Patients (${state.cohort}): <strong>${fmtCount(f[key])}</strong> · Decile ${f[key].rank ?? "—"} (universe unconfirmed)</p>
-      <p>Roster ${f.practitioner_count} · primary gyn-onc ${f.gynonc_primary_count}
-        ${f.volume_without_primary_gynonc ? '<span class="tag warn">volume without primary gyn-onc</span>' : ""}</p>
+      <p>Exported roster ${f.practitioner_count} · primary gyn-onc ${f.gynonc_primary_count} · any-field gyn-onc ${f.gynonc_any_count}. Labels do not establish current service capacity.</p>
+      <p class="muted">All exported associations are shown, including blank cohort cells. Only a nonblank link-specific patient cell indicates export presence; copied ranks do not establish an operation. Workload denominator is unknown.</p>
       <table>
         <thead><tr><th>Practitioner</th><th>Specialty</th><th>Workload</th><th>Patients</th></tr></thead>
         <tbody>
@@ -944,6 +720,7 @@
       <h2>${esc(p.display_name)}</h2>
       <p class="muted">${esc(p.specialty_1 || "")}${p.specialty_2 ? " / " + esc(p.specialty_2) : ""} · NPI ${esc(p.npi)}</p>
       <p>Gyn-onc label: <span class="tag">${esc(p.gynonc_label)}</span> · Patients: <strong>${fmtCount(p[key])}</strong></p>
+      <p class="muted">All exported sites are shown, including blank cohort cells and sites outside the current system filter. Workload denominator and observation period are unknown; these are associations, not referrals.</p>
       <table>
         <thead><tr><th>Facility</th><th>System</th><th>Workload</th><th>Patients</th></tr></thead>
         <tbody>
@@ -974,6 +751,12 @@
 
   function render() {
     const data = state.data;
+    hideDrawer();
+    if (state.map) { state.map.remove(); state.map = null; }
+    Object.keys(state.charts).forEach(destroyChart);
+    const explore = ["overview", "facilities", "practitioners"].includes(state.view);
+    $(".filters").classList.toggle("hidden", !explore);
+    $("#gynonc").parentElement.classList.toggle("hidden", state.view !== "practitioners" && state.view !== "overview");
     $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === state.view));
     const vm = VIEW_META[state.view];
     if (vm) {
@@ -988,6 +771,7 @@
       overview.classList.remove("hidden");
       table.classList.add("hidden");
       renderOverview(data);
+      $("#overview-note").textContent = "Hospital map/counts use the health-system filter and retain blank cohort cells. Specialty filter applies to cohort-present practitioners only; hospital totals cannot be allocated to a specialty. Only nonblank link counts establish presence within a selected system. System labels and coordinates are app enrichments; missing specialty labels do not mean absent services.";
     } else {
       overview.classList.add("hidden");
       table.classList.remove("hidden");
