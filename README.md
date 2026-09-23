@@ -12,7 +12,7 @@ This repository contains the public [Triaggent Consulting website](https://triag
 | `sgo/` | Password-protected PHP version of the SGO Market Atlas. |
 | `sgo-next/` | Separate Next.js version of the atlas; see its [README](sgo-next/README.md). |
 
-The homepage portfolio also links to the separate [Optimist Club of Minnesota Valley website](https://optimistmv.com/).
+The homepage portfolio also links to the separate [Optimist Club of Minnesota Valley website](https://optimistmv.com/) and campaign websites for [Toby Leonard](https://www.mankatomayor.com/), [Jackie Henry](https://www.henry4senate.com/), and [Joel Hollerich](https://www.joelhollerich.com/).
 
 ## Previewing the public pages
 
