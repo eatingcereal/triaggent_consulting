@@ -10,5 +10,9 @@ of `portfolio/gradient-descent/` with the contents of the course's `dist/`
 directory. Preserve the directory structure: its JavaScript, styles, fonts,
 and model weights load from `assets/` relative to `index.html`.
 
-The Optimist Club of Minnesota Valley card links to the separate site at
-https://optimistmv.com/.
+The other portfolio cards link to separate sites:
+
+- Optimist Club of Minnesota Valley: https://optimistmv.com/
+- Toby Leonard for Mankato Mayor: https://www.mankatomayor.com/
+- Jackie Henry for Minnesota Senate: https://www.henry4senate.com/
+- Joel Hollerich for District 77 School Board: https://www.joelhollerich.com/
