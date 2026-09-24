@@ -1,0 +1,1 @@
+import{I as e,o as t}from"./index-BvwgD-MA.js";var n=e();function r(){let[e,r]=(0,n.useState)(null);return(0,n.useEffect)(()=>{let e=!0;return t().then(t=>e&&r(t)),()=>{e=!1}},[]),e}export{r as t};
