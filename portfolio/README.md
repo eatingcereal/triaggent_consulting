@@ -2,7 +2,7 @@
 
 `gradient-descent/` is the production build of the interactive course at
 [Jacob19999/gradient-descent](https://github.com/Jacob19999/gradient-descent),
-currently built from commit `56e1b89`. It is served at
+currently built from commit `ab0506c`. It is served at
 `/portfolio/gradient-descent/` and linked from the homepage portfolio section.
 
 To refresh it, build the course with `npm run build`, then replace the contents
