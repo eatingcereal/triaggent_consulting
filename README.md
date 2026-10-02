@@ -9,6 +9,7 @@ This repository contains the public [Triaggent Consulting website](https://triag
 | `index.html` | Public homepage. It is a bundled export; the original authoring source is not in this repository. |
 | `contact.php`, `contact-config.php` | Contact form endpoint and shared configuration. Start from `contact-config.local.php.example` for local settings. |
 | `portfolio/gradient-descent/` | Static build of the [Gradient Descent interactive course](https://github.com/Jacob19999/gradient-descent), served at `/portfolio/gradient-descent/`. |
+| `portfolio/mission-control/` | Static, read-only replay of the [EDF mission-control console](https://github.com/Jacob19999/tvc-retro-propulsion) with recorded Isaac Sim landing and hover flights, served at `/portfolio/mission-control/`. See [portfolio/README.md](portfolio/README.md). |
 | `sgo/` | Password-protected PHP version of the SGO Market Atlas. |
 | `sgo-next/` | Separate Next.js version of the atlas; see its [README](sgo-next/README.md). |
 

@@ -1,0 +1,3 @@
+.demo-banner{padding:.55rem 1rem;background:#0e2a3a;color:#cfe8f5;border-bottom:1px solid #2b6f8f;font:13px/1.45 system-ui,sans-serif;text-align:center}
+.demo-banner strong{letter-spacing:.08em;margin-right:.6rem;color:#7fd1ff}
+#jsonDownload,#videoDownload,#export,#stop{display:none!important}
