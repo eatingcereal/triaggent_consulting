@@ -21,6 +21,14 @@ it, run `python -m mission_control.export_static_demo <this repo>/portfolio/miss
 from `simulation/isaac` in the source repo, then replace this directory. It must
 stay together: every URL is relative to `index.html`.
 
+`beyond-wrvus/` is a static, explorable copy of the Beyond wRVUs value platform at
+`/portfolio/beyond-wrvus/`. It runs entirely in the browser on public data (CMS Medicare 2024, NCI
+State Cancer Profiles, USDA, Census, ClinicalTrials.gov) with d3 and topojson vendored under
+`vendor/`. The password-protected `sgo/` app carries the full version, including the licensed
+MarketView layer; this copy omits that module and any internal paths. To refresh it, run
+`python3 build_platform.py --public` in the BData repo's `women opportunity/platform/` folder, then
+replace this directory. Keep `index.html` and `vendor/` together.
+
 The other portfolio cards link to separate sites:
 
 - Optimist Club of Minnesota Valley: https://optimistmv.com/
