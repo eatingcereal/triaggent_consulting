@@ -98,6 +98,8 @@ $v = static function (string $rel): string {
     </nav>
     <div class="sidebar-foot">
       <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle theme"><span class="lbl">Theme</span></button>
+      <a class="icon-btn" href="platform.php">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span class="lbl">Value platform</span></a>
       <a class="icon-btn" href="logout.php">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3"/><path d="M10 8l-4 4 4 4M6 12h9"/></svg><span class="lbl">Sign out</span></a>
     </div>
