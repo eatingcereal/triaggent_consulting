@@ -115,6 +115,7 @@ $embed = static fn(string $json): string => str_replace(['</', '<!--'], ['<\/', 
   </div>
 </div>
 <div id="tt" hidden></div>
+<div id="info-pop" role="dialog" aria-labelledby="ip-t" tabindex="-1" hidden></div>
 <div id="drawer-root"></div>
 <script src="<?php echo $v('js/vendor/d3.min.js'); ?>"></script>
 <script src="<?php echo $v('js/vendor/topojson.min.js'); ?>"></script>

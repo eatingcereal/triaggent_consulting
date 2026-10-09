@@ -123,6 +123,226 @@ document.addEventListener("focusout", () => { tt.hidden = true; });
 document.addEventListener("scroll", () => { tt.hidden = true; }, true);
 const tipAttr = (html) => 'data-tip="' + esc(html) + '"';
 
+// ------------------------------------------------------------ info icons (definition, interpretation, formula)
+// One entry per calculated figure: t = title, d = definition, i = how to interpret, f = formula lines.
+const HAV = "d = haversine distance in miles from the county's Census internal point to the nearest gyn-onc practice ZIP centroid (R = 3,958.8 mi)";
+const INFO = {
+  // overview
+  ov_cases: { t: "Annual cases", d: "Average new cancer cases diagnosed per year (NCI State Cancer Profiles, 2018–2022), summed over the counties in view. The cancer-site selector picks ovary, uterus (corpus), cervix, or all three.",
+    i: "Read it as a floor. NCI suppresses counts for counties with very few cases, and those counties add nothing here. Kansas and Connecticut publish no county counts.",
+    f: ["Annual cases = Σ county average annual count", "  over counties in view with a disclosed count", "", "All gyn = ovary + uterus + cervix (disclosed sites only)", "United States = lower 48 + DC"] },
+  ov_gyn: { t: "Identified gyn oncologists", d: "Physicians who appear as gynecologic oncologists in a public file: Medicare 2024 claim specialty \"Gynecological Oncology\" or NPPES taxonomy 207VX0201X.",
+    i: "An undercount of the real workforce, because some gyn oncologists are registered only as OB-GYNs. A physician with practice locations in two states counts once in each.",
+    f: ["Gyn oncologists = Σ over states in view of", "  unique NPIs with a practice location in that state", "", "NPI set = Medicare 2024 specialty ∪ NPPES 207VX0201X"] },
+  ov_ratio: { t: "Cases per gyn oncologist", d: "Annual cases divided by identified gyn oncologists, using only states that publish county case counts.",
+    i: "A rough measure of burden per specialist: higher means more annual cases for each identified gyn oncologist. It is not a caseload, since patients cross state lines and not every case sees a gyn oncologist.",
+    f: ["Cases per gyn onc = Σ annual cases ÷ Σ gyn oncologists", "  over states in view with county case data", "  (Kansas and Connecticut excluded)"] },
+  ov_beyond50: { t: "Cases beyond 50 miles", d: "Share of annual cases in counties more than 50 straight-line miles from the nearest gyn-onc practice ZIP.",
+    i: "Higher means more patients face a long trip to specialist care. Straight-line distance is shorter than road distance, so the share beyond 50 road miles is higher than this.",
+    f: ["Share beyond 50 = 1 − Σ cases(d ≤ 50) ÷ Σ cases", "", HAV] },
+  ov_partb: { t: "Medicare Part B to gyn oncs", d: "Total 2024 Medicare fee-for-service payments to physicians whose Medicare claim specialty is gynecologic oncology, in the geography shown.",
+    i: "This is the gyn oncologists' own professional billing, the part that wRVU productivity sees. It includes Part B drugs billed in the office. It leaves out Medicare Advantage, commercial and Medicaid patients, and the patient's deductible and coinsurance.",
+    f: ["Part B = Σ Tot_Mdcr_Pymt_Amt over gyn-onc NPIs", "  (CMS Physician & Other Practitioners, by provider, 2024)"] },
+  ov_partd: { t: "Part D drugs they prescribe", d: "Gross cost of Medicare Part D prescriptions written by gyn oncologists in 2024, in the geography shown.",
+    i: "Gross cost is everything paid at the pharmacy by plans, patients and other payers, before manufacturer rebates. It is not the prescriber's revenue. It becomes health-system revenue only when a system-owned pharmacy fills the prescription.",
+    f: ["Part D = Σ Tot_Drug_Cst over gyn-onc prescribers", "  (CMS Part D Prescribers, by provider and drug, 2024)"] },
+  ov_insights: { t: "Key insights", d: "Headline findings computed from the public layer. Each card links to the module with the detail.",
+    i: "The first card compares what the hospital is paid for the surgical stay with what the surgeon is paid for the operation. The rural and metro figures are fixed national values for the lower 48 and don't change with the geography toggle.",
+    f: ["Hospital-to-surgeon multiple = DRG 737 average total payment", "  ÷ CPT 58953 average allowed (facility)", "PARP share = Part D cost of olaparib, niraparib, rucaparib", "  ÷ all Part D cost, gyn-onc prescribers", "Rural vs. metro = median county distance, RUCC 4–9 vs. 1–3", "Crude ovarian MIR = Σ ovarian deaths ÷ Σ ovarian cases"] },
+  ov_map: { t: "Distance to nearest gyn oncologist", d: "Each county is shaded by the straight-line distance to the nearest ZIP where an identified gyn oncologist practices. The bars below show how annual cases split across distance bands.",
+    i: "Darker counties are farther from specialist care. Orange bars (50 miles and more) hold the cases most likely to face travel barriers. Distance is not drive time, and the nearest practice may not offer surgery.",
+    f: [HAV, "", "Band share = Σ cases in counties with d in the band ÷ Σ cases in view", "Bands: 0–25, 25–50, 50–75, 75–100, 100+ miles"] },
+  ov_anchors: { t: "Per-patient payment anchors", d: "Medicare 2024 national average payments for single services in an ovarian-cancer patient's care, set beside the surgeon's fee for the operation.",
+    i: "Only the orange bar counts toward the surgeon's wRVUs. Teal bars are payments the program generates for the hospital and downstream services. Each bar is one service, not a patient total. The value model combines them.",
+    f: ["Surgeon's fee = CPT 58953 average Medicare allowed, facility setting", "Bevacizumab dose = J9035 allowed per 10 mg × 105 (about 1,050 mg)", "PARP month = olaparib Part D gross cost ÷ claims, gyn-onc prescribers", "Hospital stay = DRG 736 / 737 / 738 average total Medicare payment", "", "Allowed = Medicare payment + patient cost sharing"] },
+  // access & equity: map layers
+  layer_mi: { t: "Distance to nearest gyn oncologist", d: "Straight-line distance from each county to the nearest identified gyn-onc practice ZIP, or to an outreach site you added if that is closer.",
+    i: "Darker counties are farther from specialist care. Real travel is longer than straight-line distance, especially across lakes and sparse road networks. A practice ZIP may host a visiting clinic rather than a surgical program.",
+    f: ["d = min(nearest practice ZIP, nearest added outreach site)", HAV, "", "Legend breaks: 25, 50, 75, 100 miles"] },
+  layer_cases: { t: "Annual cases", d: "Average new cancer cases per year (NCI, 2018–2022) for the site chosen in the top bar.",
+    i: "Shows where patients are, not how common the cancer is. Big counties are dark because they are big; use the incidence rate to compare risk. Grey counties have suppressed counts.",
+    f: ["Shown as published: NCI average annual count", "All gyn = ovary + uterus + cervix (disclosed sites only)", "", "Legend breaks: 3, 10, 30, 100 cases per year"] },
+  layer_rate: { t: "Incidence rate", d: "Age-adjusted new cases per 100,000 women per year (NCI, 2018–2022) for a single cancer site.",
+    i: "Compares risk between counties regardless of their size or age mix. The legend splits counties into fifths, so color shows rank within the view, not an absolute level. Small counties have unstable rates or none.",
+    f: ["Rate = NCI age-adjusted incidence per 100,000", "  (2000 U.S. standard population)", "", "Legend breaks = 20th, 40th, 60th and 80th percentiles", "  of county rates in view"] },
+  layer_mir: { t: "Ovarian mortality-to-incidence ratio", d: "Ovarian cancer deaths per year divided by new ovarian cancer cases per year in the county.",
+    i: "Closer to 1 means more deaths for each new diagnosis, a rough signal of later diagnosis or worse survival. It is crude: not adjusted for age or stage, deaths and cases come from different years, and small counties swing widely. Treat high values as hypotheses.",
+    f: ["MIR = average annual ovarian deaths (2019–2023)", "      ÷ average annual ovarian cases (2018–2022)", "Shown only where both counts are disclosed", "", "Legend breaks: 0.50, 0.60, 0.70, 0.85"] },
+  layer_pov: { t: "Poverty rate", d: "Share of all residents living below the federal poverty line in 2023 (Census SAIPE, via USDA ERS).",
+    i: "Higher poverty often goes with uninsurance, less flexible work and fewer cars, which make long trips to specialist care harder.",
+    f: ["Shown as published: PCTPOVALL_2023 (no calculation)", "", "Legend breaks: 10, 14, 18, 24 percent"] },
+  layer_rural: { t: "Rurality (RUCC 2023)", d: "USDA Rural-Urban Continuum Code, from 1 (metro of 1 million or more) to 9 (rural, not next to a metro area).",
+    i: "Higher codes are more rural and usually farther from subspecialists. The platform treats codes 1–3 as metro and 4–9 as nonmetro.",
+    f: ["Shown as published: RUCC_2023 (no calculation)", "1–3 metro, by metro size", "4–5 nonmetro, urban population 20,000+", "6–7 nonmetro, urban population 5,000–20,000", "8–9 nonmetro, urban population under 5,000", "Codes 4, 6 and 8 border a metro area; 5, 7 and 9 do not"] },
+  // access & equity: coverage
+  acc_cov: { t: "Coverage at the access threshold", d: "How many of the annual cases in view live within the threshold distance of a gyn-onc practice, today and with any outreach sites you added.",
+    i: "The curve gives the covered share at every distance from 0 to 200 miles, and the dashed line marks your threshold. With outreach sites added, the orange curve shows the gain over today. The steeper the early curve, the more cases sit close to specialists.",
+    f: ["Coverage(T) = Σ cases(d ≤ T) ÷ Σ cases in view", "d = distance to the nearest practice ZIP or added site", "Curve = Coverage(T) for T = 0, 5, 10 … 200 miles"] },
+  acc_within: { t: "Cases within", d: "Share of annual cases in counties within the threshold distance.",
+    i: "Higher is better. With outreach sites added, the green note shows the gain in percentage points over today's network.",
+    f: ["Cases within = Σ cases(d ≤ T) ÷ Σ cases in view", "Gain = Cases within (with sites) − Cases within (today)", "T = access threshold"] },
+  acc_beyond: { t: "Cases beyond", d: "Annual cases in counties farther than the threshold distance.",
+    i: "The number of patients a year who would need outreach or long travel. With sites added, \"newly covered\" is the drop from today.",
+    f: ["Cases beyond = Σ cases(d > T)", "Newly covered = Cases beyond (today) − Cases beyond (with sites)"] },
+  acc_counties: { t: "Counties beyond", d: "Number of counties in view farther than the threshold distance, including counties whose case counts are suppressed.",
+    i: "Shows how much territory lies outside the network. Many of these counties are small and rural.",
+    f: ["Counties beyond = count of counties with d > T"] },
+  acc_pop: { t: "Population beyond", d: "Total 2020 Census population, all ages and sexes, of counties farther than the threshold distance.",
+    i: "Captures small counties whose cases are suppressed and therefore missing from the case figures. It counts all residents, not only women at risk.",
+    f: ["Population beyond = Σ 2020 population of counties with d > T"] },
+  acc_best: { t: "Suggest best next site", d: "Finds the county where one outreach clinic would bring the most currently uncovered cases within the threshold.",
+    i: "A greedy search, one site at a time: press it again to add the next best site given the ones already placed. It looks only at straight-line distance to uncovered cases, not drive time, staffing or facility readiness. Use it to shortlist places, not to choose one.",
+    f: ["Candidates = counties in view with population ≥ 20,000", "  (≥ 5,000 in the Minnesota view)", "Gain(candidate) = Σ cases of counties now beyond T", "  that lie within T miles of the candidate", "Adds the candidate with the largest gain, if gain > 0"] },
+  acc_under: { t: "Largest underserved counties", d: "Counties in view beyond the threshold distance, ranked by annual cases.",
+    i: "Where outreach would reach the most patients. Counties with suppressed counts are left out even when they are remote; Population beyond covers them. The table shows the top 40.",
+    f: ["Include a county if d > T and cases > 0", "Sort by cases, highest first; keep 40"] },
+  acc_rural: { t: "Rural vs. metro", d: "Compares metro counties (RUCC 1–3) with nonmetro counties (RUCC 4–9) on distance, coverage, outcomes and burden.",
+    i: "A larger median distance or share beyond the threshold in nonmetro counties shows an access gap. The mortality-to-incidence ratio is unadjusted, so a difference is a lead to test, not a finding.",
+    f: ["Median distance = median of county d (each county counts once)", "Cases beyond = Σ cases(d > T) ÷ Σ cases, within the group", "Crude ovarian MIR = Σ ovarian deaths ÷ Σ ovarian cases,", "  counties with both counts disclosed", "Annual cases = Σ disclosed county cases"] },
+  // supply & demand
+  sup_us: { t: "U.S. cases per gyn onc", d: "Annual cases for the selected site divided by identified gyn oncologists, across lower-48 states and DC that publish county case counts.",
+    i: "The national benchmark. A state above it has more cases per identified gyn oncologist than the country as a whole.",
+    f: ["U.S. ratio = Σ cases ÷ Σ gyn oncologists", "  over lower-48 states + DC with county case data"] },
+  sup_mn: { t: "Minnesota cases per gyn onc", d: "Minnesota's annual cases for the selected site divided by gyn oncologists identified with a Minnesota practice location.",
+    i: "Compare with the U.S. figure. Higher means each Minnesota gyn oncologist faces more cases than the national average.",
+    f: ["Minnesota ratio = Minnesota cases ÷ Minnesota gyn oncologists"] },
+  sup_none: { t: "States with no gyn onc found", d: "Lower-48 states and DC where no gyn oncologist appears in Medicare 2024 or NPPES.",
+    i: "Patients there must travel out of state, or are treated by specialists registered under another specialty. Some zeros may be registration gaps.",
+    f: ["Count of states with 0 identified gyn oncologists"] },
+  sup_ids: { t: "Identified gyn oncologists", d: "Unique physicians (NPIs) identified as gyn oncologists, across all states.",
+    i: "Each physician counts once here. State totals count a physician once for each state where they practice, so they add up to more.",
+    f: ["Count of unique NPIs in", "  Medicare 2024 specialty ∪ NPPES taxonomy 207VX0201X"] },
+  sup_ratio: { t: "Annual cases per identified gyn oncologist", d: "Each state's annual cases for the selected site divided by its identified gyn oncologists.",
+    i: "Darker states have more cases per identified gyn oncologist, a sign of strain or of under-registration. Grey states publish no county case counts.",
+    f: ["State ratio = state cases ÷ state gyn oncologists", "", "Legend breaks: 40, 55, 70, 85"] },
+  sup_gyn: { t: "Identified gyn oncologists by state", d: "Unique NPIs with a practice location in the state, from Medicare 2024 claim specialty or NPPES taxonomy 207VX0201X.",
+    i: "Raw supply. Large states lead because they are large; use cases per gyn onc to compare strain.",
+    f: ["State count = unique NPIs with a practice ZIP in the state", "", "Legend breaks: 5, 10, 25, 50"] },
+  sup_cases: { t: "Annual cases by state", d: "Sum of county average annual cases (NCI, 2018–2022) for the selected site.",
+    i: "Raw demand. It excludes counties with suppressed counts, so small rural states are understated. Kansas and Connecticut publish none.",
+    f: ["State cases = Σ disclosed county average annual counts", "", "Legend breaks: 300, 800, 1,500, 3,000"] },
+  sup_region: { t: "Cases per gyn onc by Census region", d: "Pooled ratio of annual cases to identified gyn oncologists for each Census region.",
+    i: "A pooled ratio, so large states weigh more than small ones. It is not an average of state ratios. The Midwest is highlighted because Holtzman et al. (2025) found the steepest fall in fellows' hallmark cases there.",
+    f: ["Region ratio = Σ cases ÷ Σ gyn oncologists", "  over the region's states with county case data"] },
+  sup_table: { t: "State detail", d: "One row per state with the inputs behind the map.",
+    i: "Sort by cases per gyn onc to find the most stretched states. A large gap between Gyn oncs and In Medicare file means many identified gyn oncologists don't bill Medicare under that specialty.",
+    f: ["Cases/yr = Σ disclosed county average annual counts", "Gyn oncs = unique NPIs practicing in the state (Medicare ∪ NPPES)", "Cases per gyn onc = Cases/yr ÷ Gyn oncs", "In Medicare file = NPIs with Medicare gyn-onc specialty, by practice state", "Medicare Part B = Σ 2024 Medicare payments to those NPIs", "Part D prescribed = Σ Part D gross drug cost, by prescriber state"] },
+  // value model
+  val_assump: { t: "Your program", d: "The inputs behind every value-model output. Each is labeled with its source: a published benchmark or an assumption you set.",
+    i: "Moving one payer slider rebalances the others, so the mix always totals 100%. The complication split prices the index stay across DRGs 736–738. Retention applies only to downstream services.",
+    f: ["Payer weight w = payer share ÷ (Medicare + commercial + Medicaid + other)", "Professional index = w_mc + w_com × commercial professional", "  + w_mcd × Medicaid + w_oth", "Hospital index = w_mc + w_com × commercial hospital", "  + w_mcd × Medicaid + w_oth", "No-CC/MCC share = 1 − MCC share − CC share"] },
+  val_program: { t: "Year-one value to the health system", d: "Estimated payments to the health system from one year of the program's ovarian-cancer surgical patients, over each patient's first 12 months of care.",
+    i: "Gross revenue under your assumptions, not profit and not measured revenue. It sizes how far the program reaches beyond the surgeon's own billing. PJI claims will replace each benchmark with observed payments.",
+    f: ["Year-one value = per-patient value × annual patients", "Per-patient value = Σ line items (direct + associated + downstream)"] },
+  val_direct: { t: "What wRVUs see", d: "The direct professional tier: the gyn oncologist's own billing for these patients, made up of the new-patient consultation, the debulking surgery fee and follow-up office visits.",
+    i: "Roughly what wRVU productivity credits. Compare it with the year-one value to see how much value sits outside the surgeon's billing.",
+    f: ["Direct = (consult + surgeon's fee + follow-up visits) × annual patients", "Each line = Medicare national allowed × physician-fee average price"] },
+  val_ratio: { t: "For every $1 the gyn oncologist bills", d: "Associated and downstream payments generated for each dollar of the gyn oncologist's professional revenue.",
+    i: "$20 means each $1 the surgeon bills goes with $20 more in hospital and downstream payments. It is an association under your assumptions, not a causal return.",
+    f: ["Ratio = (associated + downstream) ÷ direct, per patient"] },
+  val_index: { t: "Your average price", d: "What your payer mix pays on average relative to Medicare (1.00×), shown separately for hospital care and for physician fees.",
+    i: "Above 1 means the mix pays more than Medicare on average, mostly because of the commercial share. Hospital care uses the commercial hospital multiplier and physician fees the commercial professional multiplier, so the two differ.",
+    f: ["Hospital care = w_mc × 1 + w_com × commercial hospital multiplier", "  + w_mcd × Medicaid multiplier + w_oth × 1", "Physician fees = w_mc × 1 + w_com × commercial professional multiplier", "  + w_mcd × Medicaid multiplier + w_oth × 1", "w = payer-mix shares (total 100%); other and self-pay priced at Medicare"] },
+  val_tiers: { t: "Where each patient's value comes from", d: "One patient's year-one value split three ways: direct professional (the gyn oncologist's billing), associated institutional (the index hospital stay) and downstream program (tests, imaging, chemotherapy and drugs kept in-system).",
+    i: "Shows how much value counting only the surgeon's wRVUs would miss. The downstream tier depends heavily on the retention assumption.",
+    f: ["Tier value = Σ line items in the tier, per patient", "Tier share = tier value ÷ per-patient total"] },
+  val_phase: { t: "Value along the patient journey", d: "The same per-patient value grouped by SGO's three phases of care.",
+    i: "Shows when value arises. Phase 2 is mostly the hospital stay; phase 3 grows with bevacizumab and PARP maintenance uptake.",
+    f: ["Phase 1 = consult + BRCA test + staging imaging + baseline CA-125", "Phase 2 = surgeon's fee + index stay", "Phase 3 = follow-up visits + chemo + bevacizumab", "  + surveillance CT + CA-125 monitoring + PARP", "All per patient"] },
+  val_sens: { t: "Which assumptions matter most", d: "How far the program total moves when one assumption changes and all others stay fixed.",
+    i: "Longer bars are the assumptions that matter most, sorted from the top. Check those against local data before presenting the total. The black tick is your current scenario.",
+    f: ["Low, high = program total with the assumption moved down, up", "Bar spans min(low, high) to max(low, high)", "", "Moves: commercial hospital multiplier × 0.75 / × 1.25;", "commercial share ±15 pts, offset by Medicare;", "retention, PARP and bevacizumab uptake ±15 pts;", "MCC share ±10 pts, offset by CC. Shares stay within 0–100%."] },
+  val_lines: { t: "Line items", d: "Every service in the scenario with its Medicare price, payer adjustment and in-system share.",
+    i: "Per patient is what one patient generates for the system in year one. Medicare price comes before payer adjustment and already includes the share of patients who get the service and the number of units.",
+    f: ["Per patient = Medicare price × payer adjustment × kept in-system", "Program = per patient × annual patients", "", "Medicare price (2024 national allowed):", "Consult = 99205", "BRCA = 81162 × % tested", "Staging = 74177 + 78815 × % with PET", "Baseline CA-125 = 86304", "Surgeon's fee = 58953 (facility)", "Index stay = DRG 736 × MCC% + 737 × CC% + 738 × rest", "  (average total payment)", "Follow-up visits = 99215 × (visits − 1)", "Chemo = % chemo × cycles", "  × (96413 + J9045 × 15 + J9267 × 300)", "  (750 mg carboplatin, 300 mg paclitaxel)", "Bevacizumab = % bev × doses × J9035 × 105", "Surveillance CT = 74177 × (CT scans − 1)", "CA-125 monitoring = 86304 × (tests − 1)", "PARP = % PARP × months × olaparib cost per claim", "", "Payer adjustment: direct lines use the physician-fee average price,", "PARP 1.00×, the rest the hospital-care average price.", "Kept in-system: direct lines and the stay 100%, PARP the pharmacy", "share, other downstream lines the retention assumption."] },
+  // provider footprint
+  pf_n: { t: "Gyn oncologists in Medicare", d: "Physicians whose 2024 Medicare claim specialty is gynecologic oncology, in the selected practice state.",
+    i: "Smaller than identified gyn oncologists, because it counts only those billing Medicare fee-for-service under that specialty.",
+    f: ["Count of NPIs with provider type \"Gynecological Oncology\"", "  in CMS Physician & Other Practitioners 2024"] },
+  pf_pay: { t: "Medicare Part B payments", d: "Total 2024 Medicare payments to these physicians. The detail line shows the median per physician.",
+    i: "The median is the typical physician. A few practices that bill in-office infusion drugs pull the total up.",
+    f: ["Total = Σ Tot_Mdcr_Pymt_Amt", "Median = middle value of per-physician totals"] },
+  pf_drug: { t: "In-office drug share", d: "Share of Part B payments that pays for drugs the physician bills directly, such as chemotherapy given in an office infusion suite.",
+    i: "A high share means the practice runs its own infusion. When the hospital runs infusion, the drugs bill under the hospital and this share is low.",
+    f: ["Drug share = Σ Drug_Mdcr_Pymt_Amt ÷ Σ Tot_Mdcr_Pymt_Amt"] },
+  pf_partd: { t: "Part D prescribed", d: "Gross 2024 Part D cost of prescriptions written by these physicians. The detail line shows the PARP inhibitor share.",
+    i: "Gross cost is what plans, patients and other payers paid at the pharmacy, before rebates. It becomes health-system revenue only when a system-owned pharmacy fills the prescription.",
+    f: ["Part D = Σ Tot_Drug_Cst", "PARP share = Σ cost of olaparib, niraparib, rucaparib ÷ Part D", "  (PARP inhibitors among the top 10 drugs by national cost)"] },
+  pf_rural: { t: "Rural practice locations", d: "Share of these physicians whose Medicare practice ZIP is micropolitan, small-town or rural.",
+    i: "A low share confirms that subspecialists cluster in metro areas, leaving rural patients to travel.",
+    f: ["Rural share = physicians with practice ZIP RUCA ≥ 4 ÷ all physicians"] },
+  pf_risk: { t: "Beneficiary risk score", d: "Average CMS-HCC risk score of the Medicare patients these physicians treat, weighted by patient count. The detail line shows the weighted average age.",
+    i: "1.00 is the average Medicare beneficiary. Above 1 means sicker patients who are expected to cost more.",
+    f: ["Risk = Σ (risk score × beneficiaries) ÷ Σ beneficiaries", "  over physicians with a reported score", "Age is weighted the same way"] },
+  pf_hist: { t: "Part B payment per gyn oncologist", d: "Number of physicians in each band of 2024 Medicare Part B payments.",
+    i: "Most physicians sit in the lower bands. The long right tail is practices with in-office infusion, where drug payments flow through the physician's billing.",
+    f: ["Band count = physicians with total payment in [low, high)"] },
+  pf_svc: { t: "Professional service mix", d: "Medicare payments to these physicians by type of service.",
+    i: "Shows what gyn oncologists' own billing is made of. It sums to less than total payments because CMS drops service lines with fewer than 11 beneficiaries.",
+    f: ["Payment = Σ services × average Medicare payment, per HCPCS line", "Drug flag → drugs; 992xx, G2211 → visits", "963xx, 964xx → chemo administration", "38, 39, 44, 47, 49, 50, 51, 56, 57, 58xxx → surgery", "7xxxx → imaging; 8xxxx → lab; the rest → other"] },
+  pf_drugs: { t: "Part D drugs prescribed", d: "Gross 2024 Part D cost by drug for prescriptions written by gyn oncologists.",
+    i: "PARP inhibitors and oral targeted drugs dominate. These dollars stay outside the physician's and hospital's billing unless a system pharmacy dispenses them.",
+    f: ["Cost = Σ Tot_Drug_Cst by generic name", "The top 10 drugs by national cost are named;", "  the rest are pooled as All other drugs"] },
+  pf_benes: { t: "Beneficiaries", d: "Medicare fee-for-service beneficiaries treated, summed across physicians.",
+    i: "A patient seen by two gyn oncologists counts twice, so this overstates unique patients.",
+    f: ["Beneficiaries = Σ Tot_Benes"] },
+  pf_dual: { t: "Dual-eligible", d: "Share of beneficiaries enrolled in both Medicare and Medicaid.",
+    i: "A marker of low income and social risk. CMS hides small counts for some physicians, and those count as zero here, so the share is a floor.",
+    f: ["Dual share = Σ dual-eligible beneficiaries ÷ Σ beneficiaries"] },
+  pf_o75: { t: "Aged 75+", d: "Share of beneficiaries aged 75 or older.",
+    i: "Older patients are more often frail, which shapes surgical risk and treatment choices. Hidden small counts count as zero, so the share is a floor.",
+    f: ["Share 75+ = Σ (beneficiaries aged 75–84 + aged 85+) ÷ Σ beneficiaries"] },
+  // research & quality
+  rq_trials: { t: "Recruiting trials by health system", d: "ClinicalTrials.gov studies that are recruiting, match ovarian, endometrial, uterine or cervical cancer, and list a site in each Minnesota health system.",
+    i: "A proxy for local research access. A trial with sites in two systems counts for each, so the bars add up to more than the total. The condition match is broad and includes some trials open to many cancer types.",
+    f: ["Trials(system) = count of recruiting studies with a Minnesota site", "  whose facility name matches one of the system's names", "Each study counts at most once per system"] },
+};
+function info(key) {
+  const d = INFO[key]; if (!d) return "";
+  return '<button type="button" class="info-i" data-info="' + key + '" aria-label="' + esc("About " + d.t + ": definition, interpretation and formula") + '" aria-haspopup="dialog" aria-expanded="false" aria-controls="info-pop"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M8 7.4v4.1"/><path d="M8 4.8v.1"/></svg></button>';
+}
+const h2i = (title, key) => '<div class="h2i"><h2>' + title + "</h2>" + info(key) + "</div>";
+const pop = $("#info-pop");
+let popFor = null;
+function placePop() {
+  if (!popFor) return;
+  const r = popFor.getBoundingClientRect();
+  if (!popFor.isConnected || r.bottom < 0 || r.top > window.innerHeight) { closePop(false); return; }
+  const w = pop.offsetWidth, h = pop.offsetHeight, m = 12;
+  let top = r.bottom + 6;
+  if (top + h > window.innerHeight - m && r.top - h - 6 >= m) top = r.top - h - 6;
+  pop.style.left = Math.max(m, Math.min(r.left - 8, window.innerWidth - w - m)) + "px";
+  pop.style.top = Math.max(m, Math.min(top, window.innerHeight - h - m)) + "px";
+}
+function openPop(btn) {
+  const d = INFO[btn.dataset.info]; if (!d) return;
+  if (popFor) popFor.setAttribute("aria-expanded", "false");
+  popFor = btn; btn.setAttribute("aria-expanded", "true");
+  pop.innerHTML = '<div class="ip-h"><h3 id="ip-t">' + esc(d.t) + '</h3><button type="button" class="ip-x" aria-label="Close">×</button></div>' +
+    '<div><div class="ip-k">Definition</div><p>' + esc(d.d) + "</p></div>" +
+    '<div><div class="ip-k">How to interpret</div><p>' + esc(d.i) + "</p></div>" +
+    '<div><div class="ip-k">Formula</div><pre>' + esc(d.f.join("\n")) + "</pre></div>";
+  pop.hidden = false; tt.hidden = true; pop.scrollTop = 0;
+  placePop(); pop.focus({ preventScroll: true });
+}
+function closePop(refocus) {
+  if (!popFor) return;
+  const b = popFor; popFor = null; pop.hidden = true; b.setAttribute("aria-expanded", "false");
+  if (refocus && b.isConnected) b.focus({ preventScroll: true });
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest("[data-info]");
+  if (b) { if (popFor === b) closePop(true); else openPop(b); return; }
+  if (e.target.closest && e.target.closest(".ip-x")) { closePop(true); return; }
+  if (popFor && !pop.contains(e.target)) closePop(false);
+});
+pop.addEventListener("focusout", (e) => { if (popFor && e.relatedTarget && !pop.contains(e.relatedTarget) && e.relatedTarget !== popFor) closePop(false); });
+// Tab past the close button returns to the icon, so keyboard order continues from where the popover opened.
+pop.addEventListener("keydown", (e) => { if (e.key === "Tab" && !e.shiftKey && e.target.closest(".ip-x")) { e.preventDefault(); closePop(true); } });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && popFor) closePop(true); });
+document.addEventListener("scroll", (e) => { if (popFor && !pop.contains(e.target)) placePop(); }, true);
+window.addEventListener("resize", placePop);
+
 // ------------------------------------------------------------ chart helpers
 function barsHTML(rows, o) {
   o = o || {};
@@ -134,8 +354,8 @@ function barsHTML(rows, o) {
       '</span><span class="vl">' + val + '</span></div><div class="tr"><div class="fl" style="width:' + pct.toFixed(2) + "%;background:" + (r.color || o.color || "var(--s1)") + '"></div></div></div>';
   }).join("") + "</div>";
 }
-function kpi(label, value, detail, extra) {
-  return '<div class="kpi"><div class="l">' + label + '</div><div class="v">' + value + "</div>" + (detail ? '<div class="d">' + detail + "</div>" : "") + (extra || "") + "</div>";
+function kpi(label, value, detail, extra, inf) {
+  return '<div class="kpi"><div class="l"><span>' + label + "</span>" + (inf ? info(inf) : "") + '</div><div class="v">' + value + "</div>" + (detail ? '<div class="d">' + detail + "</div>" : "") + (extra || "") + "</div>";
 }
 function chip(kind, txt) { return '<span class="chip ' + kind + '">' + txt + "</span>"; }
 function sortable(id, cols, rows, defSort) {
@@ -271,7 +491,7 @@ function buildNav() {
   });
   const extra = window.SGO_LINKS || [];
   if (extra.length) {
-    html += '<div class="grp">SGO workspace</div>' + extra.map((l) => l.theme
+    html += '<div class="grp">' + esc(window.SGO_LINKS_GROUP || "SGO workspace") + "</div>" + extra.map((l) => l.theme
       ? '<button type="button" data-theme-toggle><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg><span class="lbl">Theme</span></button>'
       : '<a href="' + esc(l.href) + '"><svg viewBox="0 0 24 24" aria-hidden="true">' + l.icon + '</svg><span class="lbl">' + esc(l.label) + "</span></a>").join("");
   }
@@ -327,23 +547,23 @@ views.overview = function (el) {
   el.innerHTML =
     '<div class="banner"><span class="ic">i</span><div><b>What this platform answers:</b> how much a gynecologic oncology program is worth to its health system beyond the surgeon\'s wRVUs. It combines need and access, provider supply, and economics. Public data powers every module today. The MarketView layer loads locally, and PJI claims will replace benchmarks with measured dollars.</div></div>' +
     '<div class="kpis">' +
-      kpi("Annual " + siteLabel() + " cases", F.n(cases), geoName + ", disclosed counties") +
-      kpi("Identified gyn oncologists", F.n(gyn), "Medicare 2024 claim specialty + NPPES taxonomy") +
-      kpi("Cases per gyn oncologist", gynForRatio ? (casesForRatio / gynForRatio).toFixed(0) : "–", "states with county data") +
-      kpi("Cases beyond 50 miles", F.p(1 - cov50.share), "straight-line, county centroid") +
-      kpi("Medicare Part B to gyn oncs", F.usd(partB), F.n(provs.length) + " gyn oncs, 2024") +
-      kpi("Part D drugs they prescribe", F.usd(partD), "gross cost, all gyn-onc prescribers, 2024") +
+      kpi("Annual " + siteLabel() + " cases", F.n(cases), geoName + ", disclosed counties", "", "ov_cases") +
+      kpi("Identified gyn oncologists", F.n(gyn), "Medicare 2024 claim specialty + NPPES taxonomy", "", "ov_gyn") +
+      kpi("Cases per gyn oncologist", gynForRatio ? (casesForRatio / gynForRatio).toFixed(0) : "–", "states with county data", "", "ov_ratio") +
+      kpi("Cases beyond 50 miles", F.p(1 - cov50.share), "straight-line, county centroid", "", "ov_beyond50") +
+      kpi("Medicare Part B to gyn oncs", F.usd(partB), F.n(provs.length) + " gyn oncs, 2024", "", "ov_partb") +
+      kpi("Part D drugs they prescribe", F.usd(partD), "gross cost, all gyn-onc prescribers, 2024", "", "ov_partd") +
     "</div>" +
     '<div class="grid">' +
-      '<section class="panel c7"><div class="panel-h"><h2>Key insights</h2><span class="meta">click through to the module</span></div><div class="ins">' +
+      '<section class="panel c7"><div class="panel-h">' + h2i("Key insights", "ov_insights") + '<span class="meta">click through to the module</span></div><div class="ins">' +
         insight("", "The hospital earns about " + Math.round(drg737.pay / surg) + "× the surgeon's fee for the same operation", "Medicare 2024: debulking (CPT 58953) averaged " + F.usd0(surg) + " allowed for the surgeon. The ovarian-malignancy surgical stay (DRG 737) averaged " + F.usd0(drg737.pay) + ".", "value", "Open value model") +
         insight("", "Oral cancer drugs gyn oncs prescribe roughly equal all their Medicare professional payments", "Part D gross cost " + F.usd(partDAll) + " vs. Part B payments " + F.usd(sum(DATA.providers.map((p) => p.pay))) + ". PARP inhibitors are " + F.p(parpAll / partDAll, 0) + " of the drug spend.", "providers", "Open provider footprint") +
         insight("opp", "Rural patients live more than twice as far from a gyn oncologist", "Median straight-line distance is 62 miles for rural counties vs. 26 for metro. Crude ovarian mortality-to-incidence ratio is 0.78 rural vs. 0.64 metro (unadjusted).", "access", "Open access & equity") +
         insight("gap", "Public hospital data can't size a program", "Only " + DATA.facts.hosp737_ge11 + " U.S. hospitals report 11+ Medicare FFS discharges in DRG 737. Medicare Advantage and commercial patients are invisible. MarketView and PJI close this gap.", "methods", "Open data & methods") +
         insight("opp", "Research access is a measurable institutional value", DATA.facts.trials_mn_total + " recruiting gyn-cancer trials list a Minnesota site, and community systems take part through NCI networks.", "research", "Open research & quality") +
       "</div></section>" +
-      '<section class="panel c5"><div class="panel-h"><h2>Distance to nearest gyn oncologist</h2><span class="meta">' + (state.geo === "mn" ? "Minnesota" : "U.S.") + ' counties</span></div><div class="map-wrap" id="ov-map"></div><div id="ov-leg"></div><h2 style="margin:6px 0 0;font-size:var(--fs-md);font-weight:650">Share of ' + siteLabel() + ' cases by distance</h2>' + distBandsHTML() + '<button type="button" class="linkbtn" data-go="access">Run outreach scenarios →</button></section>' +
-      '<section class="panel c6"><div class="panel-h"><h2>Per-patient payment anchors</h2><span class="meta">Medicare 2024, national</span></div>' + icebergHTML() + "</section>" +
+      '<section class="panel c5"><div class="panel-h">' + h2i("Distance to nearest gyn oncologist", "ov_map") + '<span class="meta">' + (state.geo === "mn" ? "Minnesota" : "U.S.") + ' counties</span></div><div class="map-wrap" id="ov-map"></div><div id="ov-leg"></div><h2 style="margin:6px 0 0;font-size:var(--fs-md);font-weight:650">Share of ' + siteLabel() + ' cases by distance</h2>' + distBandsHTML() + '<button type="button" class="linkbtn" data-go="access">Run outreach scenarios →</button></section>' +
+      '<section class="panel c6"><div class="panel-h">' + h2i("Per-patient payment anchors", "ov_anchors") + '<span class="meta">Medicare 2024, national</span></div>' + icebergHTML() + "</section>" +
       '<section class="panel c6"><div class="panel-h"><h2>Data readiness</h2><span class="meta">what each layer can support</span></div>' + readinessHTML() + "</section>" +
     "</div>";
   const m = drawCountyMap($("#ov-map"), { metric: "mi" });
@@ -392,7 +612,7 @@ views.access = function (el) {
   const suggestions = state.geo === "mn" ? [["Duluth", 46.7867, -92.1005], ["Bemidji", 47.4736, -94.8803], ["Grand Rapids", 47.2372, -93.5302], ["International Falls", 48.6011, -93.4105], ["Brainerd", 46.358, -94.2008], ["Thief River Falls", 48.1191, -96.1781], ["Marshall", 44.4469, -95.7884], ["Willmar", 45.1219, -95.0433], ["Fergus Falls", 46.283, -96.0776]] : [];
   el.innerHTML =
     '<div class="grid">' +
-      '<section class="panel c8"><div class="panel-h"><h2 id="acc-title"></h2><span class="meta">click the map to add an outreach site</span></div>' +
+      '<section class="panel c8"><div class="panel-h"><div class="h2i"><h2 id="acc-title"></h2>' + info("layer_" + state.metric) + '</div><span class="meta">click the map to add an outreach site</span></div>' +
         '<div style="display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center">' +
           '<div class="ctl"><label for="metric-sel">Map layer</label><select id="metric-sel">' +
             [["mi", "Distance to nearest gyn onc"], ["cases", "Annual cases"], ["rate", "Incidence rate (single site)"], ["mir", "Ovarian mortality-to-incidence"], ["pov", "Poverty rate"], ["rural", "Rurality"]].map((m) => '<option value="' + m[0] + '"' + (state.metric === m[0] ? " selected" : "") + ">" + m[1] + "</option>").join("") +
@@ -401,14 +621,14 @@ views.access = function (el) {
         "</div>" +
         '<div class="map-wrap" id="acc-map"></div><div id="acc-leg"></div>' +
         (state.metric === "rate" && state.site === "all" ? '<p class="note">Incidence rates are site-specific. Choose ovary, uterus, or cervix in the top bar.</p>' : "") +
-        '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><button type="button" class="btn primary" id="best-site">Suggest best next site</button>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><button type="button" class="btn primary" id="best-site">Suggest best next site</button>' + info("acc_best") +
           suggestions.map((s) => '<button type="button" class="btn small" data-sug="' + s[1] + "," + s[2] + "," + s[0] + '">+ ' + s[0] + "</button>").join("") +
           (state.added.length ? '<button type="button" class="btn small" id="clear-sites">Clear ' + state.added.length + " site" + (state.added.length > 1 ? "s" : "") + "</button>" : "") +
         "</div>" +
       "</section>" +
-      '<section class="panel c4"><div class="panel-h"><h2>Coverage at <span id="cov-thr">' + state.threshold + '</span> miles</h2></div><div class="kpis" id="cov-kpis" style="grid-template-columns:1fr 1fr"></div><div id="cov-curve" class="chart"></div><div class="legend" id="cov-leg"></div></section>' +
-      '<section class="panel c6"><div class="panel-h"><h2>Largest underserved counties</h2><span class="meta">cases beyond the threshold</span></div><div id="under"></div></section>' +
-      '<section class="panel c6"><div class="panel-h"><h2>Rural vs. metro</h2><span class="meta">' + (state.geo === "mn" ? "Minnesota" : "lower 48") + ' counties</span></div><div id="rural"></div><p class="note">Distances are straight-line from county population centroids to gyn-onc practice ZIPs. Drive time (OSRM, already run for Triaggent) is the next step. Mortality-to-incidence ratios are crude and unadjusted, so treat them as hypotheses.</p></section>' +
+      '<section class="panel c4"><div class="panel-h"><div class="h2i"><h2>Coverage at <span id="cov-thr">' + state.threshold + '</span> miles</h2>' + info("acc_cov") + '</div></div><div class="kpis" id="cov-kpis" style="grid-template-columns:1fr 1fr"></div><div id="cov-curve" class="chart"></div><div class="legend" id="cov-leg"></div></section>' +
+      '<section class="panel c6"><div class="panel-h">' + h2i("Largest underserved counties", "acc_under") + '<span class="meta">cases beyond the threshold</span></div><div id="under"></div></section>' +
+      '<section class="panel c6"><div class="panel-h">' + h2i("Rural vs. metro", "acc_rural") + '<span class="meta">' + (state.geo === "mn" ? "Minnesota" : "lower 48") + ' counties</span></div><div id="rural"></div><p class="note">Distances are straight-line from county population centroids to gyn-onc practice ZIPs. Drive time (OSRM, already run for Triaggent) is the next step. Mortality-to-incidence ratios are crude and unadjusted, so treat them as hypotheses.</p></section>' +
     "</div>";
   $("#acc-title").textContent = BINS[state.metric].label;
   const redraw = () => {
@@ -421,10 +641,10 @@ views.access = function (el) {
     const changed = state.added.length > 0;
     $("#cov-thr").textContent = state.threshold;
     $("#cov-kpis").innerHTML =
-      kpi("Cases within", F.p(now.share), changed ? '<span class="delta up">+' + ((now.share - base.share) * 100).toFixed(1) + " pts vs. today</span>" : "of " + F.n(now.tot) + " per year") +
-      kpi("Cases beyond", F.n(now.beyond), changed ? '<span class="delta up">' + F.n(base.beyond - now.beyond) + " newly covered</span>" : "per year") +
-      kpi("Counties beyond", F.n(now.nBeyond), changed ? "was " + F.n(base.nBeyond) : "") +
-      kpi("Population beyond", F.n(now.popBeyond), "2020 census");
+      kpi("Cases within", F.p(now.share), changed ? '<span class="delta up">+' + ((now.share - base.share) * 100).toFixed(1) + " pts vs. today</span>" : "of " + F.n(now.tot) + " per year", "", "acc_within") +
+      kpi("Cases beyond", F.n(now.beyond), changed ? '<span class="delta up">' + F.n(base.beyond - now.beyond) + " newly covered</span>" : "per year", "", "acc_beyond") +
+      kpi("Counties beyond", F.n(now.nBeyond), changed ? "was " + F.n(base.nBeyond) : "", "", "acc_counties") +
+      kpi("Population beyond", F.n(now.popBeyond), "2020 census", "", "acc_pop");
     const pts = (added) => d3.range(0, 205, 5).map((x) => [x, coverage(x, added).share]);
     const series = [{ name: "Today", color: "var(--s1)", pts: pts([]) }];
     if (changed) series.push({ name: "With outreach sites", color: "var(--s2)", pts: pts(state.added) });
@@ -449,6 +669,7 @@ views.access = function (el) {
       "<tr><td>Crude ovarian MIR</td><td class='r'>" + (mir(met) == null ? "–" : mir(met).toFixed(2)) + "</td><td class='r'>" + (mir(rur) == null ? "–" : mir(rur).toFixed(2)) + "</td></tr>" +
       "<tr><td>Annual " + siteLabel() + " cases</td><td class='r'>" + F.n(sum(met.map(casesOf))) + "</td><td class='r'>" + F.n(sum(rur.map(casesOf))) + "</td></tr>" +
       "</tbody></table></div>";
+    placePop();
   };
   updateStats();
   $("#metric-sel").addEventListener("change", (e) => { state.metric = e.target.value; render(); });
@@ -496,18 +717,18 @@ views.supply = function (el) {
   const mn = rows.find((r) => r.st === "MN");
   el.innerHTML =
     '<div class="kpis">' +
-      kpi("U.S. cases per gyn onc", (usC / usG).toFixed(0), siteLabel() + ", states with county data") +
-      kpi("Minnesota", mn.ratio ? mn.ratio.toFixed(0) : "–", F.n(mn.cases) + " cases · " + mn.gyn + " gyn oncs") +
-      kpi("States with no gyn onc found", F.n(rows.filter((r) => r.gyn === 0).length), "in Medicare or NPPES") +
-      kpi("Identified gyn oncologists", F.n(DATA.facts.identified_npis), "unique NPIs, all states") +
+      kpi("U.S. cases per gyn onc", (usC / usG).toFixed(0), siteLabel() + ", states with county data", "", "sup_us") +
+      kpi("Minnesota", mn.ratio ? mn.ratio.toFixed(0) : "–", F.n(mn.cases) + " cases · " + mn.gyn + " gyn oncs", "", "sup_mn") +
+      kpi("States with no gyn onc found", F.n(rows.filter((r) => r.gyn === 0).length), "in Medicare or NPPES", "", "sup_none") +
+      kpi("Identified gyn oncologists", F.n(DATA.facts.identified_npis), "unique NPIs, all states", "", "sup_ids") +
     "</div>" +
     '<div class="grid">' +
-      '<section class="panel c8"><div class="panel-h"><h2>' + M.label + '</h2><div class="ctl"><label for="sup-m">Show</label><select id="sup-m">' +
+      '<section class="panel c8"><div class="panel-h">' + h2i(M.label, "sup_" + state.supplyMetric) + '<div class="ctl"><label for="sup-m">Show</label><select id="sup-m">' +
         [["ratio", "Cases per gyn onc"], ["gyn", "Gyn oncologists"], ["cases", "Annual cases"]].map((m) => '<option value="' + m[0] + '"' + (state.supplyMetric === m[0] ? " selected" : "") + ">" + m[1] + "</option>").join("") +
       '</select></div></div><div class="map-wrap" id="sup-map"></div><div id="sup-leg"></div></section>' +
-      '<section class="panel c4"><div class="panel-h"><h2>By Census region</h2><span class="meta">cases per gyn onc</span></div>' + barsHTML(regions, { fmt: (v) => v.toFixed(0) }) +
+      '<section class="panel c4"><div class="panel-h">' + h2i("By Census region", "sup_region") + '<span class="meta">cases per gyn onc</span></div>' + barsHTML(regions, { fmt: (v) => v.toFixed(0) }) +
         '<p class="note">Holtzman et al. (2025) found the steepest drop in hallmark cases per fellow in the Midwest, so it is highlighted here. These ratios use public identity files and partly reflect how completely gyn oncs are registered.</p></section>' +
-      '<section class="panel c12"><div class="panel-h"><h2>State detail</h2><span class="meta">click a column to sort</span></div>' +
+      '<section class="panel c12"><div class="panel-h">' + h2i("State detail", "sup_table") + '<span class="meta">click a column to sort</span></div>' +
         sortable("states", [
           { k: "name", h: "State" }, { k: "region", h: "Region" }, { k: "cases", h: "Cases/yr", r: 1, f: (v) => v == null ? '<span class="blank">no county data</span>' : F.n(v) },
           { k: "gyn", h: "Gyn oncs", r: 1, f: F.n }, { k: "ratio", h: "Cases per gyn onc", r: 1, f: (v) => v == null ? "–" : Math.round(v) },
@@ -545,99 +766,370 @@ function computeScenario(sc) {
   const pMcc = Math.min(100, sc.pMcc) / 100, pCc = Math.min(100 - sc.pMcc, sc.pCc) / 100, pNo = Math.max(0, 1 - pMcc - pCc);
   const inSys = sc.inSys / 100;
   const L = [];
-  const add = (key, label, phase, tier, base, mult, retain, tag) => L.push({ key, label, phase, tier, base, mult, retain, per: base * mult * retain, tag });
-  add("consult", "New-patient gyn-onc consultation", 1, "Direct", BM.newVisit, prof, 1, "CMS 99205");
-  add("brca", "Germline BRCA testing", 1, "Downstream", BM.brca * sc.pBrca / 100, hosp, inSys, "CMS 81162");
-  add("staging", "Staging imaging (CT + PET share)", 1, "Downstream", BM.ct + BM.pet * sc.petBase / 100, hosp, inSys, "CMS 74177/78815");
-  add("ca125b", "Baseline CA-125", 1, "Downstream", BM.ca125, hosp, inSys, "CMS 86304");
-  add("surgeon", "Surgeon's debulking fee", 2, "Direct", BM.surg, prof, 1, "CMS 58953");
-  add("stay", "Index hospital stay (DRG mix)", 2, "Associated", BM.drg736 * pMcc + BM.drg737 * pCc + BM.drg738 * pNo, hosp, 1, "CMS DRG 736–738");
-  add("visits", "Follow-up gyn-onc visits", 3, "Direct", BM.estVisit * Math.max(0, sc.visits - 1), prof, 1, "CMS 99215");
-  add("chemo", "Platinum-taxane chemotherapy (admin + drugs)", 3, "Downstream", sc.pChemo / 100 * sc.cycles * (BM.chemoAdmin + BM.carbo * 15 + BM.pacli * 300), hosp, inSys, "CMS 96413/J9045/J9267");
-  add("bev", "Bevacizumab infusions", 3, "Downstream", sc.pBev / 100 * sc.bevDoses * BM.bev10 * 105, hosp, inSys, "CMS J9035");
-  add("surv", "Surveillance CT", 3, "Downstream", BM.ct * Math.max(0, sc.ctYear - 1), hosp, inSys, "CMS 74177");
-  add("ca125s", "CA-125 monitoring", 3, "Downstream", BM.ca125 * Math.max(0, sc.ca125 - 1), hosp, inSys, "CMS 86304");
-  add("parp", "PARP maintenance via system pharmacy", 3, "Downstream", sc.pParp / 100 * sc.parpMonths * BM.parp, 1, sc.pharmShare / 100, "CMS Part D");
+  const add = (key, label, short, phase, tier, base, mult, retain, tag) => L.push({ key, label, short, phase, tier, base, mult, retain, per: base * mult * retain, tag });
+  add("consult", "New-patient gyn-onc consultation", "First consultation", 1, "Direct", BM.newVisit, prof, 1, "CMS 99205");
+  add("brca", "Germline BRCA testing", "BRCA genetic test", 1, "Downstream", BM.brca * sc.pBrca / 100, hosp, inSys, "CMS 81162");
+  add("staging", "Staging imaging (CT + PET share)", "Staging CT and PET", 1, "Downstream", BM.ct + BM.pet * sc.petBase / 100, hosp, inSys, "CMS 74177/78815");
+  add("ca125b", "Baseline CA-125", "Baseline CA-125", 1, "Downstream", BM.ca125, hosp, inSys, "CMS 86304");
+  add("surgeon", "Surgeon's debulking fee", "Surgeon's fee", 2, "Direct", BM.surg, prof, 1, "CMS 58953");
+  add("stay", "Index hospital stay (DRG mix)", "Hospital stay", 2, "Associated", BM.drg736 * pMcc + BM.drg737 * pCc + BM.drg738 * pNo, hosp, 1, "CMS DRG 736–738");
+  add("visits", "Follow-up gyn-onc visits", "Follow-up visits", 3, "Direct", BM.estVisit * Math.max(0, sc.visits - 1), prof, 1, "CMS 99215");
+  add("chemo", "Platinum-taxane chemotherapy (admin + drugs)", "Chemotherapy", 3, "Downstream", sc.pChemo / 100 * sc.cycles * (BM.chemoAdmin + BM.carbo * 15 + BM.pacli * 300), hosp, inSys, "CMS 96413/J9045/J9267");
+  add("bev", "Bevacizumab infusions", "Bevacizumab", 3, "Downstream", sc.pBev / 100 * sc.bevDoses * BM.bev10 * 105, hosp, inSys, "CMS J9035");
+  add("surv", "Surveillance CT", "Surveillance CT", 3, "Downstream", BM.ct * Math.max(0, sc.ctYear - 1), hosp, inSys, "CMS 74177");
+  add("ca125s", "CA-125 monitoring", "CA-125 monitoring", 3, "Downstream", BM.ca125 * Math.max(0, sc.ca125 - 1), hosp, inSys, "CMS 86304");
+  add("parp", "PARP maintenance via system pharmacy", "PARP inhibitor", 3, "Downstream", sc.pParp / 100 * sc.parpMonths * BM.parp, 1, sc.pharmShare / 100, "CMS Part D");
   const tiers = { Direct: 0, Associated: 0, Downstream: 0 }, phases = { 1: 0, 2: 0, 3: 0 };
   L.forEach((l) => { tiers[l.tier] += l.per; phases[l.phase] += l.per; });
   const perPatient = tiers.Direct + tiers.Associated + tiers.Downstream;
   return { lines: L, tiers, phases, perPatient, program: perPatient * sc.cases, ratio: tiers.Direct ? (tiers.Associated + tiers.Downstream) / tiers.Direct : null, prof, hosp, w };
 }
-const SCEN_FIELDS = [
-  ["Program volume", [["cases", "Annual ovarian cancer surgical patients", 1, 0, 2000, "User input · MarketView supplies this nationally"]]],
-  ["Payer mix (%)", [["mc", "Medicare", 1, 0, 100, "Assumption"], ["com", "Commercial", 1, 0, 100, "Assumption"], ["mcd", "Medicaid", 1, 0, 100, "Assumption"], ["oth", "Other / self-pay", 1, 0, 100, "Assumption"]]],
-  ["Price multipliers vs. Medicare", [["comHosp", "Commercial, hospital services", 0.05, 0.5, 5, "RAND Round 5: employers paid 254% of Medicare (2022)"], ["comProf", "Commercial, professional services", 0.05, 0.5, 4, "Assumption; CBO 2022 found specialty prices 30–140% above Medicare"], ["mcdMult", "Medicaid, all services", 0.01, 0.3, 1.5, "KFF Medicaid-to-Medicare fee index 0.72 (2019)"]]],
-  ["Surgical acuity (%)", [["pMcc", "Stays with major complication (MCC)", 0.1, 0, 100, "Benchmark: Medicare 2024 discharge mix"], ["pCc", "Stays with complication (CC)", 0.1, 0, 100, "Benchmark: Medicare 2024 discharge mix"]]],
-  ["Clinical pathway, first 12 months", [["visits", "Gyn-onc office visits", 1, 0, 40, "Assumption"], ["pChemo", "% receiving platinum-taxane chemo", 1, 0, 100, "Assumption"], ["cycles", "Chemo cycles", 1, 0, 12, "Assumption"], ["pBev", "% receiving bevacizumab", 1, 0, 100, "Assumption"], ["bevDoses", "Bevacizumab doses", 1, 0, 30, "Assumption"], ["ctYear", "CT scans", 1, 0, 12, "Assumption"], ["petBase", "% with staging PET", 1, 0, 100, "Assumption"], ["ca125", "CA-125 tests", 1, 0, 24, "Assumption"], ["pBrca", "% with germline BRCA testing", 1, 0, 100, "Assumption; guidelines recommend testing all"], ["pParp", "% on PARP maintenance", 1, 0, 100, "Assumption"], ["parpMonths", "PARP months in year one", 1, 0, 12, "Assumption"]]],
-  ["Retention", [["inSys", "% of downstream care kept in-system", 1, 0, 100, "Assumption · PJI will measure this"], ["pharmShare", "% of PARP fills via system pharmacy", 1, 0, 100, "Assumption"]]],
+// Every input the model takes. kind: "bench" = default from a published benchmark, "assume" = our starting assumption,
+// "input" = the member's own number. smax narrows the slider; the number box still accepts up to max.
+const VM_FIELDS = {
+  cases: { label: "Ovarian cancer surgical patients a year", short: "", unit: "patients", step: 1, min: 0, max: 2000, smax: 400, kind: "input", help: "Patients whose ovarian cancer surgery is done by the program's gyn oncologists.", src: "Your number. MarketView supplies facility volumes nationally." },
+  mc: { label: "Medicare", short: "Medicare", unit: "%", step: 1, min: 0, max: 100, kind: "assume" },
+  com: { label: "Commercial insurance", short: "Commercial", unit: "%", step: 1, min: 0, max: 100, kind: "assume" },
+  mcd: { label: "Medicaid", short: "Medicaid", unit: "%", step: 1, min: 0, max: 100, kind: "assume" },
+  oth: { label: "Other / self-pay", short: "Other", unit: "%", step: 1, min: 0, max: 100, kind: "assume" },
+  comHosp: { label: "Commercial, hospital care", short: "Hospital", unit: "×", step: 0.01, min: 0.5, max: 5, kind: "bench", help: "What commercial plans pay hospitals, as a multiple of Medicare.", src: "RAND Round 5: employers paid 254% of Medicare for hospital services (2022)." },
+  comProf: { label: "Commercial, physician fees", short: "Physician", unit: "×", step: 0.01, min: 0.5, max: 4, kind: "assume", help: "What commercial plans pay physicians, as a multiple of Medicare.", src: "CBO (2022) found commercial specialty prices 30–140% above Medicare." },
+  mcdMult: { label: "Medicaid, all services", short: "Medicaid", unit: "×", step: 0.01, min: 0.3, max: 1.5, kind: "bench", help: "Medicaid usually pays less than Medicare.", src: "KFF Medicaid-to-Medicare fee index of 0.72 (2019)." },
+  inSys: { label: "Chemo, imaging and tests done in-system", short: "Care", unit: "%", step: 1, min: 0, max: 100, kind: "assume", help: "Share of follow-on care your system delivers instead of another provider.", src: "PJI claims will measure this." },
+  pharmShare: { label: "PARP prescriptions filled by your pharmacy", short: "PARP fills", unit: "%", step: 1, min: 0, max: 100, kind: "assume", help: "PARP inhibitors are pills, often dispensed by outside specialty pharmacies.", src: "No public benchmark." },
+  pChemo: { label: "Patients getting chemotherapy", short: "Chemo", unit: "%", step: 1, min: 0, max: 100, kind: "assume", help: "Carboplatin plus paclitaxel after surgery.", src: "Typical first-line treatment." },
+  pParp: { label: "Patients on a PARP inhibitor", short: "PARP", unit: "%", step: 1, min: 0, max: 100, kind: "assume", help: "Daily maintenance pills such as olaparib, mostly for BRCA or HRD-positive tumors.", src: "Depends on tumor genetics." },
+  pBev: { label: "Patients getting bevacizumab", short: "Bevacizumab", unit: "%", step: 1, min: 0, max: 100, kind: "assume", help: "An IV drug added to chemotherapy for some patients.", src: "Varies by practice." },
+  cycles: { label: "Chemo cycles", short: "Cycles", unit: "cycles", step: 1, min: 0, max: 12, kind: "assume", help: "Per patient who gets chemo. A standard course is six.", src: "Standard course." },
+  bevDoses: { label: "Bevacizumab doses", short: "Doses", unit: "doses", step: 1, min: 0, max: 30, kind: "assume", help: "Per patient who gets bevacizumab, in the first year.", src: "Assumed maintenance length." },
+  parpMonths: { label: "Months on a PARP inhibitor", short: "Months", unit: "months", step: 1, min: 0, max: 12, kind: "assume", help: "In the first year, per patient who takes one.", src: "Assumed start after chemo." },
+  visits: { label: "Gyn-onc office visits", short: "Visits", unit: "visits", step: 1, min: 0, max: 40, kind: "assume", help: "Includes the first consultation.", src: "Assumed visit schedule." },
+  ctYear: { label: "CT scans", short: "CT", unit: "scans", step: 1, min: 0, max: 12, kind: "assume", help: "Includes the staging scan.", src: "Assumed surveillance schedule." },
+  petBase: { label: "Patients with a staging PET scan", short: "PET", unit: "%", step: 1, min: 0, max: 100, kind: "assume", help: "PET is added to CT for some patients at diagnosis.", src: "Varies by practice." },
+  ca125: { label: "CA-125 blood tests", short: "CA-125", unit: "tests", step: 1, min: 0, max: 24, kind: "assume", help: "Tumor-marker tests, including the baseline.", src: "Assumed monitoring schedule." },
+  pBrca: { label: "Patients with germline BRCA testing", short: "BRCA", unit: "%", step: 1, min: 0, max: 100, kind: "assume", help: "Tests for inherited BRCA1/2 mutations.", src: "Guidelines recommend testing everyone with ovarian cancer." },
+  pMcc: { label: "Stays with a major complication", short: "MCC", unit: "%", step: 0.1, min: 0, max: 100, kind: "bench", help: "Paid at the higher DRG 736 rate.", src: "Medicare 2024 national discharge mix." },
+  pCc: { label: "Stays with a complication", short: "CC", unit: "%", step: 0.1, min: 0, max: 100, kind: "bench", help: "Paid at the DRG 737 rate. The rest are paid at DRG 738.", src: "Medicare 2024 national discharge mix." },
+};
+const VM_GROUPS = [
+  { id: "size", q: "How many patients does the program treat?", lead: "Annual ovarian cancer surgical volume. Pick a program type or set your own number.", keys: ["cases"] },
+  { id: "payer", q: "Who pays for their care?", lead: "Commercial plans pay more than Medicare and Medicaid pays less. Moving one slider rebalances the others so the mix stays at 100%. Other / self-pay is priced at Medicare rates.", keys: ["mc", "com", "mcd", "oth"] },
+  { id: "price", q: "How do other payers' prices compare with Medicare?", lead: "Multipliers on Medicare's 2024 national prices.", keys: ["comHosp", "comProf", "mcdMult"] },
+  { id: "keep", q: "How much follow-on care stays in your system?", lead: "Only care your system delivers counts. Patients often get chemo, scans or drugs elsewhere.", keys: ["inSys", "pharmShare"] },
+  { id: "tx", q: "What treatment do patients get in year one?", lead: "Defaults describe a typical first year after surgery.", keys: ["pChemo", "pParp", "pBev"], more: ["cycles", "bevDoses", "parpMonths", "visits", "ctYear", "petBase", "ca125", "pBrca"], moreLabel: "Doses, visits, scans and tests" },
+  { id: "acuity", q: "How complex are the surgeries?", lead: "Medicare pays more for hospital stays with complications. Defaults match Medicare's 2024 national mix.", keys: ["pMcc", "pCc"] },
 ];
+const VM_PAYERS = ["mc", "com", "mcd", "oth"];
+const VM_FLOOR = { mc: 100, com: 0, mcd: 0, oth: 0, inSys: 0, pParp: 0 };
+const VM_TIERS = {
+  Direct: { color: "var(--s2)", name: "Direct professional", desc: "The gyn oncologist's own fees for the consultation, surgery and follow-up visits. This is the only part wRVUs measure." },
+  Associated: { color: "var(--s3)", name: "Associated institutional", desc: "The hospital's payment for the surgical stay, set by Medicare's DRG 736–738 rates." },
+  Downstream: { color: "var(--s1)", name: "Downstream program", desc: "Chemotherapy, infusions, imaging, genetic testing and PARP drugs delivered by your system." },
+};
+const VM_PHASES = [[1, "Consultation & diagnosis", "Before surgery"], [2, "Surgical care", "Surgery and hospital stay"], [3, "Treatment & survivorship", "Rest of the first year"]];
+const VM_GLOSSARY = [
+  ["SGO", "Society of Gynecologic Oncology, the professional society for gynecologic oncologists. Its members asked for a way to show a program's value beyond physician billing."],
+  ["Gynecologic oncologist", "A surgeon who treats cancers of the ovary, uterus and cervix, including complex tumor surgery and chemotherapy."],
+  ["wRVU", "Work relative value unit: Medicare's measure of a physician's own work on a service. Hospitals often judge specialists by wRVUs, which leaves out the hospital and downstream revenue they generate."],
+  ["Payer mix", "The share of patients covered by Medicare, commercial insurance, Medicaid and other sources. Each pays a different price for the same service."],
+  ["Debulking surgery", "Surgery to remove as much ovarian tumor as possible (CPT 58953 in this model). It anchors the patient's first year of care."],
+  ["DRG, MCC and CC", "Medicare pays hospitals a set amount per stay by diagnosis-related group. DRGs 736, 737 and 738 cover this surgery with a major complication (MCC), a complication (CC), or neither."],
+  ["Platinum-taxane chemotherapy", "The standard chemotherapy after surgery: carboplatin plus paclitaxel, usually six cycles."],
+  ["Bevacizumab", "An IV drug that blocks the blood supply tumors grow, added to chemotherapy for some patients."],
+  ["PARP inhibitor", "Daily maintenance pills such as olaparib, taken after chemotherapy, mostly by patients with BRCA mutations or HRD-positive tumors."],
+  ["CA-125", "A blood test for a tumor marker, used to track response to treatment and watch for recurrence."],
+  ["In-system retention", "The share of a patient's follow-on care delivered by the same health system. Care delivered elsewhere earns the system nothing."],
+  ["PJI and MarketView", "Licensed LexisNexis data. PJI claims would replace these benchmarks with measured payments; MarketView supplies program volumes nationally."],
+];
+const VM_HOW = [
+  ["Follow one patient through the first year", "The model lists 12 services a typical ovarian cancer patient receives across SGO's three phases of care. The treatment sliders set how many patients get each service and how often."],
+  ["Price each service at Medicare rates", "Each service starts at Medicare's 2024 national average payment from CMS public files. The surgical stay blends the three DRG rates by your complication mix."],
+  ["Adjust for who pays", "Commercial plans pay more than Medicare and Medicaid pays less. Your payer mix turns the multipliers into one average adjustment for hospital care and one for physician fees. PARP drugs stay at their Part D cost."],
+  ["Count only care your system delivers", "The gyn oncologist's fees and the surgical stay count in full. Chemo, imaging and tests count at your in-system share, and PARP drugs at your pharmacy share."],
+  ["Sort each service into a tier", "Direct is the gyn oncologist's own billing, associated is the surgical stay, and downstream is the care that follows. Fees billed by other specialists, such as anesthesia and pathology, are left out."],
+  ["Multiply by the number of patients", "Adding the lines gives the value of one patient's first year. Multiplying by annual volume gives the program total."],
+];
+const VM_OUT = [
+  "Fees billed by other specialists, such as anesthesia and pathology. The model never credits them to the gyn oncologist.",
+  "Care after the first 12 months, including treatment for recurrence.",
+  "Readmissions and any hospital stay other than the surgical stay.",
+  "Uterine and cervical cancer. This version models ovarian cancer surgery only.",
+  "Costs. The result is revenue, not profit; contribution margin needs local cost data.",
+  "Your contracted rates. Price multipliers are national averages.",
+  "Research, education and access value, which the other modules cover.",
+];
+const vmDec = (step) => (String(step).split(".")[1] || "").length;
+function vmFmt(k, v) {
+  const f = VM_FIELDS[k];
+  if (f.unit === "%") return (+v.toFixed(vmDec(f.step))) + "%";
+  if (f.unit === "×") return v.toFixed(2) + "×";
+  return F.n(v) + " " + f.unit;
+}
+function vmField(k) {
+  const f = VM_FIELDS[k], v = state.scen[k], d = SCEN_DEFAULTS[k], smax = f.smax || f.max;
+  const defAt = Math.max(0, Math.min(1, (d - f.min) / (smax - f.min)));
+  const kind = { bench: ["pub", "Benchmark"], assume: ["scn", "Assumption"], input: ["scn", "Your input"] }[f.kind];
+  const tip = "<b>" + kind[1] + "</b>" + (f.src ? "<br>" + esc(f.src) : "") + "<br>Default: " + esc(vmFmt(k, d));
+  return '<div class="fld" data-fld="' + k + '">' +
+    '<div class="fld-top"><label for="sl-' + k + '">' + esc(f.label) + '</label><span class="fld-val"><input type="number" id="nb-' + k + '" data-k="' + k + '" step="' + f.step + '" min="' + f.min + '" max="' + f.max + '" value="' + v + '" aria-label="' + esc(f.label) + ", " + esc(f.unit) + '"><span class="u">' + esc(f.unit) + "</span></span></div>" +
+    '<div class="sl"><i class="def" style="left:calc(9px + (100% - 18px) * ' + defAt.toFixed(4) + ')"></i><input type="range" id="sl-' + k + '" data-k="' + k + '" min="' + f.min + '" max="' + smax + '" step="' + f.step + '" value="' + Math.min(v, smax) + '"></div>' +
+    (f.help ? '<div class="fld-help"><span class="chip ' + kind[0] + '" tabindex="0" ' + tipAttr(tip) + ">" + kind[1] + "</span>" + esc(f.help) + "</div>" : "") +
+    "</div>";
+}
+// Spread `rest` over `keys` in proportion to `weights`, as whole numbers that add up exactly.
+function vmApportion(keys, weights, rest) {
+  const tw = sum(weights);
+  const raw = keys.map((_, i) => (tw > 0 ? weights[i] / tw : 1 / keys.length) * rest);
+  const out = raw.map(Math.floor);
+  let left = Math.round(rest - sum(out));
+  raw.map((x, i) => [x - out[i], i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (left > 0) { out[i]++; left--; } });
+  return out;
+}
 views.value = function (el) {
   const sc = state.scen;
   const lic = state.lic;
   const facOpts = lic ? lic.facilities.filter((f) => f.ov.st === "num") : [];
+  if (!state.vmOpen) state.vmOpen = { acuity: false, "tx-more": false };
+  if (Math.round(sum(VM_PAYERS.map((k) => sc[k]))) !== 100) {
+    const fixed = vmApportion(VM_PAYERS, VM_PAYERS.map((k) => Math.max(0, sc[k])), 100);
+    VM_PAYERS.forEach((k, i) => { sc[k] = fixed[i]; });
+  }
+  const isOpen = (id) => state.vmOpen[id] !== false;
+  const group = (g) => '<details class="vm-group" data-open-key="' + g.id + '"' + (isOpen(g.id) ? " open" : "") + ">" +
+    '<summary class="vm-q"><h3>' + esc(g.q) + '</h3><span class="lead">' + esc(g.lead) + '</span><span class="cur" id="cur-' + g.id + '"></span></summary>' +
+    (g.id === "size" ? '<div class="presets">' + [["Community program", 25], ["Regional hub", 80], ["Referral center", 200]].map((p) => '<button type="button" class="btn small" data-preset="' + p[1] + '">' + p[0] + " · " + p[1] + "</button>").join("") + "</div>" : "") +
+    (g.id === "size" && lic ? '<div class="frow"><label for="vol-src">Volume from MarketView</label><select id="vol-src"><option value="user">Manual entry</option>' + facOpts.map((f) => '<option value="' + esc(f.id) + '"' + (state.volSource === f.id ? " selected" : "") + ">" + esc(f.name) + " (" + f.ov.v + ")</option>").join("") + '</select><span class="src">Sample facility counts cover an unspecified period. Suppressed facilities are not listed.</span></div>' : "") +
+    (g.id === "payer" ? '<div class="mixbar" id="mix-payer" role="img" aria-label="Payer mix"></div>' : "") +
+    (g.id === "acuity" ? '<div class="mixbar acuity" id="mix-acuity" role="img" aria-label="Hospital stays by complication level"></div>' : "") +
+    g.keys.map(vmField).join("") +
+    (g.id === "price" ? '<div class="readout" id="blend"></div>' : "") +
+    (g.more ? '<details class="vm-more" data-open-key="' + g.id + '-more"' + (isOpen(g.id + "-more") ? " open" : "") + "><summary>" + esc(g.moreLabel) + "</summary>" + g.more.map(vmField).join("") + "</details>" : "") +
+    "</details>";
   el.innerHTML =
+    '<section class="panel"><div class="vm-intro">' +
+      '<div><div class="eyebrow">What this model answers</div><h2>What is a gynecologic oncology program worth to its health system?</h2>' +
+        "<p>Hospitals usually value a gyn oncologist by wRVUs, a count of the doctor's own billed work. That leaves out most of the revenue the program creates: the surgical hospital stay, chemotherapy, imaging, genetic tests and drugs that follow each patient. This model estimates that full first-year footprint for an ovarian cancer program, starting from Medicare's 2024 national prices.</p><button type=\"button\" class=\"linkbtn\" id=\"vm-how-link\" style=\"margin-top:8px\">See how the model works, step by step</button></div>" +
+      '<ol class="vm-steps">' +
+        "<li><span><b>Describe your program</b> with the sliders: how many patients, who pays, and how much care stays in your system.</span></li>" +
+        "<li><span><b>Read the result.</b> It updates as you drag, split into the gyn oncologist's own billing, the hospital stay and downstream care.</span></li>" +
+        "<li><span><b>See what drives it.</b> The sensitivity chart ranks the assumptions that move the total most. Click one to adjust it.</span></li>" +
+      "</ol>" +
+    "</div></section>" +
     '<div class="banner"><span class="ic">!</span><div><b>Scenario model, not measured revenue.</b> Prices are Medicare 2024 national averages from CMS public files, adjusted by the payer mix and multipliers you set. When PJI claims arrive, observed allowed amounts replace each benchmark line by line. Contribution margin needs local cost data and is not shown.</div></div>' +
     '<div class="grid">' +
-      '<section class="panel c4"><div class="panel-h"><h2>Assumptions</h2><button type="button" class="btn small" id="scen-reset">Reset defaults</button></div>' +
-        '<div style="display:flex;flex-wrap:wrap;gap:6px">' + [["Community program", 25], ["Regional hub", 80], ["Referral center", 200]].map((p) => '<button type="button" class="btn small" data-preset="' + p[1] + '">' + p[0] + " · " + p[1] + "</button>").join("") + "</div>" +
-        (lic ? '<div class="frow"><label for="vol-src">Volume from MarketView</label><select id="vol-src"><option value="user">Manual entry</option>' + facOpts.map((f) => '<option value="' + esc(f.id) + '"' + (state.volSource === f.id ? " selected" : "") + ">" + esc(f.name) + " (" + f.ov.v + ")</option>").join("") + '</select><span class="src">Sample facility counts cover an unspecified period. Suppressed facilities are not listed.</span></div>' : "") +
-        '<form class="form" id="scen-form">' + SCEN_FIELDS.map((g) => '<div class="fgroup"><h3>' + g[0] + "</h3>" + g[1].map((f) =>
-          '<div class="frow"><label for="sc-' + f[0] + '">' + f[1] + '</label><input type="number" id="sc-' + f[0] + '" data-k="' + f[0] + '" step="' + f[2] + '" min="' + f[3] + '" max="' + f[4] + '" value="' + sc[f[0]] + '"><span class="src">' + f[5] + "</span></div>").join("") + "</div>").join("") + "</form>" +
-        '<p class="note" id="mix-warn"></p>' +
+      '<section class="panel c4 vm-inputs" id="vm-inputs" aria-label="Scenario inputs"><div class="panel-h">' + h2i("Your program", "val_assump") + '<button type="button" class="btn small" id="scen-reset">Reset defaults</button></div>' +
+        '<p class="note" style="margin:0 0 10px">Drag a slider or type a number. The small mark on each slider is the default.</p>' +
+        '<div class="vm-start"><span>Stress test:</span><button type="button" class="btn small" id="vm-floor" aria-pressed="false">Medicare-only floor</button></div>' +
+        '<form id="scen-form">' + VM_GROUPS.map(group).join("") + "</form>" +
+        '<div class="vm-live" id="vm-live" aria-hidden="true"></div>' +
       "</section>" +
-      '<div class="c8" style="display:grid;gap:16px;align-content:start" id="scen-out"></div>' +
+      '<div class="c8" style="display:grid;gap:16px;align-content:start">' +
+        '<section class="panel vm-hero" id="vm-hero"></section>' +
+        '<section class="panel"><div class="panel-h">' + h2i("Where each patient\'s value comes from", "val_tiers") + '<span class="meta">per patient, after payer mix and in-system share</span></div><div class="tiers" id="vm-tiers"></div></section>' +
+        '<section class="panel journey"><div class="panel-h">' + h2i("Value along the patient journey", "val_phase") + '<span class="meta">per patient · SGO journey phases</span></div><div id="vm-journey"></div><p class="note" style="margin:0">Modeled from Medicare benchmarks, not observed claims. Bar length compares the three phases.</p></section>' +
+        '<section class="panel"><div class="panel-h">' + h2i("Which assumptions matter most", "val_sens") + '<span class="meta">program total, low to high</span></div><div class="tornado" id="vm-sens"></div><p class="note" style="margin:0">Each bar shows the program total when one assumption moves by the stated amount and everything else stays put. The black tick is your current scenario. Click a row to adjust that assumption.</p></section>' +
+        '<section class="panel"><div class="panel-h">' + h2i("Line items", "val_lines") + '<span class="meta">every line tagged with its CMS source</span></div><div id="vm-formula"></div><div id="vm-lines"></div></section>' +
+        '<section class="panel"><div class="panel-h"><h2>Leadership summary</h2><button type="button" class="btn primary" id="copy-sum">Copy summary</button></div><textarea class="copybox" id="sum-txt" readonly aria-label="Leadership summary text"></textarea><p class="note" id="copy-msg"></p></section>' +
+      "</div>" +
+      '<section class="panel c12" id="vm-how"><div class="panel-h"><h2>How the model works</h2><span class="meta">six steps, shown with your current scenario</span></div>' +
+        '<ol class="how">' + VM_HOW.map((h, i) => '<li><span class="how-n" aria-hidden="true">' + (i + 1) + '</span><div class="how-b"><h3>' + esc(h[0]) + "</h3><p>" + esc(h[1]) + '</p><div class="calc" id="how-' + (i + 1) + '"></div></div></li>').join("") + "</ol>" +
+        '<div class="how-cols">' +
+          '<div><h3 class="how-h">What the model leaves out</h3><ul class="how-out">' + VM_OUT.map((x) => "<li>" + esc(x) + "</li>").join("") + "</ul></div>" +
+          '<div><h3 class="how-h">Medicare 2024 prices it starts from</h3><div class="tbl-wrap"><table><thead><tr><th scope="col">Code</th><th scope="col">Service</th><th scope="col">Unit</th><th scope="col" class="r">Medicare</th></tr></thead><tbody>' +
+            [["99205", "New-patient office visit, high complexity", "visit", BM.newVisit], ["99215", "Follow-up office visit, high complexity", "visit", BM.estVisit], ["58953", "Debulking surgery, surgeon's fee", "surgery", BM.surg],
+             ["DRG 736", "Surgical stay with a major complication", "stay", BM.drg736], ["DRG 737", "Surgical stay with a complication", "stay", BM.drg737], ["DRG 738", "Surgical stay with neither", "stay", BM.drg738],
+             ["96413", "Chemotherapy infusion, first hour", "session", BM.chemoAdmin], ["J9045", "Carboplatin", "50 mg (15 a cycle)", BM.carbo], ["J9267", "Paclitaxel", "1 mg (300 a cycle)", BM.pacli], ["J9035", "Bevacizumab", "10 mg (105 a dose)", BM.bev10],
+             ["74177", "CT, abdomen and pelvis", "scan", BM.ct], ["78815", "PET/CT, skull base to mid-thigh", "scan", BM.pet], ["86304", "CA-125 blood test", "test", BM.ca125], ["81162", "BRCA1/2 genetic test", "test", BM.brca],
+             ["Part D", "Olaparib (PARP inhibitor)", "claim, counted as a month", BM.parp]]
+              .map((x) => '<tr><td class="mono">' + x[0] + "</td><td>" + x[1] + "</td><td>" + x[2] + '</td><td class="r">' + (x[3] < 10 ? "$" + x[3].toFixed(2) : F.usd0(x[3])) + "</td></tr>").join("") +
+          '</tbody></table></div><p class="note" style="margin:6px 0 0">Average Medicare allowed amounts (payment plus patient cost sharing), 2024. Stays use the average total DRG payment; olaparib uses the average Part D gross cost per claim.</p></div>' +
+        "</div>" +
+        '<p class="note" style="margin:0">With PJI claims, observed allowed amounts would replace each Medicare price, and the in-system share would be measured from where patients actually received care instead of set by a slider.</p>' +
+      "</section>" +
+      '<section class="panel c12"><div class="panel-h"><h2>Terms on this page</h2></div><dl class="gloss">' + VM_GLOSSARY.map((g) => "<div><dt>" + esc(g[0]) + "</dt><dd>" + esc(g[1]) + "</dd></div>").join("") + "</dl></section>" +
     "</div>";
-  const out = $("#scen-out");
-  const paint = () => {
-    const r = computeScenario(sc);
-    const pm = sc.mc + sc.com + sc.mcd + sc.oth;
-    $("#mix-warn").textContent = Math.abs(pm - 100) > 0.5 ? "Payer mix adds to " + pm + "%. It is normalized to 100% in the calculation." : "";
-    const tierColor = { Direct: "var(--s2)", Associated: "var(--s3)", Downstream: "var(--s1)" };
-    const tierLabel = { Direct: "Direct professional", Associated: "Associated institutional", Downstream: "Downstream program" };
-    const tornado = sensitivity(sc, r.program);
-    out.innerHTML =
-      '<div class="kpis">' +
-        kpi("Program footprint, year one", F.usd(r.program), F.n(sc.cases) + " patients × " + F.usd(r.perPatient)) +
-        kpi("Direct professional", F.usd(r.tiers.Direct * sc.cases), "the gyn oncologist's own billing") +
-        kpi("System value per $1 direct", r.ratio ? "$" + r.ratio.toFixed(1) : "–", "associated + downstream ÷ direct") +
-        kpi("Blended price index", r.hosp.toFixed(2) + "×", "hospital services vs. Medicare") +
-      "</div>" +
-      '<section class="panel"><div class="panel-h"><h2>Per-patient value by attribution tier</h2><span class="meta">payer-adjusted, in-system share applied</span></div>' +
-        '<div class="legend">' + Object.keys(tierColor).map((k) => '<span><i class="sw" style="background:' + tierColor[k] + '"></i>' + tierLabel[k] + "</span>").join("") + "</div>" +
-        '<div class="stack" role="img" aria-label="Per-patient value split by tier">' + Object.keys(tierColor).map((k) => '<div tabindex="0" style="flex:' + Math.max(0.0001, r.tiers[k]) + ";background:" + tierColor[k] + '" ' + tipAttr("<b>" + tierLabel[k] + "</b><br>" + F.usd0(r.tiers[k]) + " per patient · " + F.p(r.tiers[k] / r.perPatient)) + "></div>").join("") + "</div>" +
-        barsHTML(Object.keys(tierColor).map((k) => ({ label: tierLabel[k], v: r.tiers[k], color: tierColor[k], vtxt: F.usd0(r.tiers[k]) + " · " + F.p(r.tiers[k] / r.perPatient, 0) })), {}) +
-      "</section>" +
-      '<div class="grid">' +
-        '<section class="panel c6"><div class="panel-h"><h2>By SGO journey phase</h2><span class="meta">per patient</span></div>' +
-          barsHTML([["1 · Consultation & diagnosis", 1], ["2 · Surgical care", 2], ["3 · Treatment & survivorship", 3]].map((p) => ({ label: p[0], v: r.phases[p[1]], color: "var(--bar-neutral)", vtxt: F.usd0(r.phases[p[1]]) })), {}) + "</section>" +
-        '<section class="panel c6"><div class="panel-h"><h2>Sensitivity</h2><span class="meta">program total, low to high</span></div><div class="tornado">' + tornado + '</div><p class="note">Bar spans the program total when each assumption moves by the stated amount. The vertical tick marks the current scenario.</p></section>' +
-      "</div>" +
-      '<section class="panel"><div class="panel-h"><h2>Line items</h2><span class="meta">every number tagged with its source</span></div>' +
-        sortable("lines", [
-          { k: "label", h: "Service" }, { k: "tier", h: "Tier", f: (v) => '<span style="display:inline-flex;gap:6px;align-items:center"><i class="sw" style="background:' + tierColor[v] + '"></i>' + v + "</span>" },
-          { k: "per", h: "Per patient", r: 1, f: F.usd0 }, { k: "prog", h: "Program", r: 1, f: F.usd },
-          { k: "base", h: "Medicare basis", r: 1, f: F.usd0 }, { k: "mult", h: "Price index", r: 1, f: (v) => v.toFixed(2) + "×" }, { k: "retain", h: "Kept in-system", r: 1, f: (v) => F.p(v, 0) },
-          { k: "phase", h: "Phase", r: 1 }, { k: "tag", h: "Source", f: (v) => chip("pub", esc(v)) },
-        ], r.lines.map((l) => Object.assign({}, l, { prog: l.per * sc.cases })), { k: "per", d: -1 }) +
-      "</section>" +
-      '<section class="panel"><div class="panel-h"><h2>Leadership summary</h2><button type="button" class="btn primary" id="copy-sum">Copy summary</button></div><textarea class="copybox" id="sum-txt" readonly aria-label="Leadership summary text"></textarea><p class="note" id="copy-msg"></p></section>';
-    $("#sum-txt").value = summaryText(sc, r);
-    $("#copy-sum").addEventListener("click", () => {
-      const t = $("#sum-txt").value;
-      const done = (ok) => { $("#copy-msg").textContent = ok ? "Copied to clipboard." : "Clipboard is blocked here. The text is selected; press Ctrl+C or ⌘C."; if (!ok) { $("#sum-txt").focus(); $("#sum-txt").select(); } };
-      try { navigator.clipboard.writeText(t).then(() => done(true), () => done(false)); } catch (e) { done(false); }
+  const topbar = $(".topbar");
+  const setTop = () => document.documentElement.style.setProperty("--topbar-h", topbar.offsetHeight + "px");
+  setTop();
+  if (!window.__vmResize) { window.__vmResize = true; window.addEventListener("resize", setTop); }
+
+  const changedKeys = () => Object.keys(VM_FIELDS).filter((k) => Math.abs(sc[k] - SCEN_DEFAULTS[k]) > 1e-9);
+  const isFloor = () => Object.keys(VM_FLOOR).every((k) => sc[k] === VM_FLOOR[k]);
+  const syncFields = (skip) => {
+    Object.keys(VM_FIELDS).forEach((k) => {
+      const f = VM_FIELDS[k], v = sc[k], smax = f.smax || f.max;
+      const sl = $("#sl-" + k), nb = $("#nb-" + k);
+      if (sl) {
+        if (sl !== skip) sl.value = Math.min(v, smax);
+        sl.style.setProperty("--p", ((Math.min(v, smax) - f.min) / (smax - f.min) * 100).toFixed(2) + "%");
+        sl.setAttribute("aria-valuetext", vmFmt(k, v).replace("×", " times Medicare"));
+      }
+      if (nb && nb !== skip) nb.value = v.toFixed(vmDec(f.step));
+      const fld = $('[data-fld="' + k + '"]');
+      if (fld) fld.classList.toggle("changed", Math.abs(v - SCEN_DEFAULTS[k]) > 1e-9);
     });
   };
+  const mixBar = (id, parts, active) => {
+    const box = $("#" + id); if (!box) return;
+    const W = box.clientWidth, tot = sum(parts.map((p) => p.v)) || 1;
+    box.innerHTML = parts.filter((p) => p.v > 0).map((p) => {
+      const w = p.v / tot * W, full = p.label + " " + p.txt;
+      const txt = full.length * 6.4 + 14 < w ? full : p.txt.length * 6.4 + 10 < w ? p.txt : "";
+      return '<div class="' + (p.k === active ? "act" : "") + '" style="flex:' + p.v + '" tabindex="-1" ' + tipAttr("<b>" + esc(p.label) + "</b><br>" + esc(p.txt)) + ">" + esc(txt) + "</div>";
+    }).join("");
+  };
+  let lastKey = null;
+  const paint = () => {
+    const r = computeScenario(sc);
+    const floor = computeScenario(Object.assign({}, sc, VM_FLOOR));
+    const changed = changedKeys();
+    const T = VM_TIERS, tierKeys = Object.keys(T);
+
+    // input-side readouts
+    VM_GROUPS.forEach((g) => { const c = $("#cur-" + g.id); if (c) c.textContent = g.keys.map((k) => (VM_FIELDS[k].short ? VM_FIELDS[k].short + " " : "") + vmFmt(k, sc[k])).join(" · "); });
+    mixBar("mix-payer", VM_PAYERS.map((k) => ({ k, label: VM_FIELDS[k].short, v: sc[k], txt: sc[k] + "%" })), VM_PAYERS.includes(lastKey) ? lastKey : null);
+    const pM = Math.min(100, sc.pMcc), pC = Math.min(100 - pM, sc.pCc);
+    mixBar("mix-acuity", [{ k: "pMcc", label: "MCC", v: pM, txt: +pM.toFixed(1) + "%" }, { k: "pCc", label: "CC", v: pC, txt: +pC.toFixed(1) + "%" }, { k: "none", label: "Neither", v: Math.max(0, 100 - pM - pC), txt: +Math.max(0, 100 - pM - pC).toFixed(1) + "%" }], null);
+    $("#blend").innerHTML = "<span>Your average price, hospital care <b>" + r.hosp.toFixed(2) + "×</b> Medicare</span><span class=\"h2i\">physician fees <b>" + r.prof.toFixed(2) + "×</b>" + info("val_index") + "</span>";
+    const fb = $("#vm-floor"); fb.classList.toggle("on", isFloor()); fb.setAttribute("aria-pressed", isFloor());
+
+    $("#vm-live").innerHTML = "<span>Year one <b>" + F.usd(r.program) + "</b></span><span><b>" + (r.ratio != null ? "$" + r.ratio.toFixed(1) : "–") + "</b> per $1 billed</span>";
+
+    // headline: the program total, and what wRVUs see of it
+    const prog = (k) => r.tiers[k] * sc.cases;
+    const seg = (k) => '<i style="flex:' + Math.max(prog(k), 0.0001) + ";background:" + T[k].color + '" ' + tipAttr("<b>" + T[k].name + "</b><br>" + F.usd(prog(k)) + " · " + F.usd0(r.tiers[k]) + " per patient") + "></i>";
+    $("#vm-hero").innerHTML =
+      '<div class="vm-hero-top">' +
+        '<div><div class="eyebrow h2i">Year-one value to the health system' + info("val_program") + '</div><div class="big">' + F.usd(r.program) + '</div><div class="big-sub"><b>' + F.n(sc.cases) + "</b> patients × <b>" + F.usd0(r.perPatient) + "</b> per patient</div></div>" +
+        '<div><div class="eyebrow h2i">For every $1 the gyn oncologist bills' + info("val_ratio") + '</div><div class="big md">' + (r.ratio != null ? "$" + r.ratio.toFixed(1) : "–") + '</div><div class="big-sub">of hospital and downstream revenue. Conservative floor: <b>' + (floor.ratio != null ? "$" + floor.ratio.toFixed(1) : "–") + "</b> with Medicare prices and only the hospital stay counted.</div></div>" +
+      "</div>" +
+      '<div class="cmp">' +
+        '<div class="cmp-row"><div class="lb"><span class="h2i">What wRVUs see' + info("val_direct") + '</span><small>The gyn oncologist\'s own billing</small></div><div class="cmp-track">' + seg("Direct") + '<i class="gap" style="flex:' + Math.max(prog("Associated") + prog("Downstream"), 0.0001) + '"></i></div><div class="vl">' + F.usd(prog("Direct")) + "</div></div>" +
+        '<div class="cmp-row"><div class="lb">What the program brings in<small>Adds the hospital stay and downstream care</small></div><div class="cmp-track">' + tierKeys.map(seg).join("") + '</div><div class="vl">' + F.usd(r.program) + "</div></div>" +
+      "</div>" +
+      '<div class="vm-state"><div class="legend" style="margin-right:auto">' + tierKeys.map((k) => '<span><i class="sw" style="background:' + T[k].color + '"></i>' + T[k].name + "</span>").join("") + "</div>" +
+        (changed.length ? chip("scn", changed.length + (changed.length === 1 ? " input" : " inputs") + " changed") + '<button type="button" class="linkbtn" data-vm-reset>Reset defaults</button>' : chip("pub", "Default scenario")) + "</div>";
+
+    // tiers
+    $("#vm-tiers").innerHTML = tierKeys.map((k) => {
+      const share = r.perPatient ? r.tiers[k] / r.perPatient : 0;
+      return '<div class="tier"><div class="hd"><i class="sw" style="background:' + T[k].color + '"></i>' + T[k].name + "</div>" +
+        '<div class="v">' + F.usd0(r.tiers[k]) + "<small>per patient</small></div>" +
+        '<div class="meter"><i style="width:' + (share * 100).toFixed(1) + "%;background:" + T[k].color + '"></i></div>' +
+        '<div class="pc">' + F.p(share, 0) + " of the total · " + F.usd(prog(k)) + " a year</div>" +
+        "<p>" + T[k].desc + "</p></div>";
+    }).join("");
+
+    // journey
+    const maxPh = Math.max(1, ...Object.values(r.phases));
+    const arrow = '<div class="jarrow" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3 8h10"/><path d="M9 4l4 4-4 4"/></svg></div>';
+    $("#vm-journey").innerHTML = '<div class="jgrid">' + VM_PHASES.map((p, i) => {
+      const ls = r.lines.filter((l) => l.phase === p[0]).sort((a, b) => b.per - a.per);
+      const byTier = tierKeys.map((k) => [k, sum(ls.filter((l) => l.tier === k).map((l) => l.per))]).filter((t) => t[1] > 0);
+      return (i ? arrow : "") + '<div class="jstage"><div class="n">Phase ' + p[0] + " · " + p[2] + "</div><h3>" + p[1] + "</h3>" +
+        '<div class="v">' + F.usd0(r.phases[p[0]]) + "<small>" + F.p(r.perPatient ? r.phases[p[0]] / r.perPatient : 0, 0) + "</small></div>" +
+        '<div class="jbar" style="width:' + Math.max(1, r.phases[p[0]] / maxPh * 100).toFixed(1) + '%">' + byTier.map((t) => '<i style="flex:' + t[1] + ";background:" + T[t[0]].color + '" ' + tipAttr("<b>" + T[t[0]].name + "</b><br>" + F.usd0(t[1]) + " per patient") + "></i>").join("") + "</div>" +
+        '<ul class="jlist">' + ls.map((l) => '<li class="' + (l.per < 0.5 ? "zero" : "") + '"><span><i style="background:' + T[l.tier].color + '"></i>' + esc(l.short) + "</span><span>" + F.usd0(l.per) + "</span></li>").join("") + "</ul></div>";
+    }).join("") + "</div>";
+
+    // sensitivity
+    $("#vm-sens").innerHTML = sensitivity(sc, r.program);
+
+    // formula + line items
+    const ex = r.lines.find((l) => l.key === "chemo" && l.per > 0) || r.lines.slice().sort((a, b) => b.per - a.per)[0];
+    const term = (lbl, val, cls) => '<div class="term' + (cls ? " " + cls : "") + '"><small>' + lbl + "</small><b>" + val + "</b></div>";
+    const op = (s) => '<span class="op" aria-hidden="true">' + s + "</span>";
+    $("#vm-formula").innerHTML = '<p class="note" style="margin:0 0 8px">Every line uses the same formula. Here it is for <b>' + esc(ex.short.toLowerCase()) + "</b>:</p>" +
+      '<div class="formula">' + term("Medicare 2024 price", F.usd0(ex.base)) + op("×") + term("Payer adjustment", ex.mult.toFixed(2) + "×") + op("×") + term("Kept in-system", F.p(ex.retain, 0)) + op("=") +
+      term("Per patient", F.usd0(ex.per), "res") + '<span class="tail">× ' + F.n(sc.cases) + " patients = <b>" + F.usd(ex.per * sc.cases) + "</b> a year</span></div>";
+    const maxPer = Math.max(1, ...r.lines.map((l) => l.per));
+    $("#vm-lines").innerHTML = sortable("lines", [
+      { k: "label", h: "Service", f: (v, row) => '<span class="svc">' + esc(v) + "<small>" + esc(row.tag) + "</small></span>" },
+      { k: "tier", h: "Tier", f: (v) => '<span style="display:inline-flex;gap:6px;align-items:center"><i class="sw" style="background:' + T[v].color + '"></i>' + v + "</span>" },
+      { k: "per", h: "Per patient", r: 1, f: (v, row) => '<span class="mini" style="width:' + (v / maxPer * 48).toFixed(1) + "px;background:" + T[row.tier].color + ';margin-right:8px"></span>' + F.usd0(v) },
+      { k: "prog", h: "Program", r: 1, f: F.usd },
+      { k: "base", h: "Medicare price", r: 1, f: F.usd0 }, { k: "mult", h: "Payer adj.", r: 1, f: (v) => v.toFixed(2) + "×" }, { k: "retain", h: "Kept in-system", r: 1, f: (v) => F.p(v, 0) },
+      { k: "phase", h: "Phase", r: 1 },
+    ], r.lines.map((l) => Object.assign({}, l, { prog: l.per * sc.cases })), { k: "per", d: -1 });
+    // method steps, with this scenario's numbers
+    const $c = (v) => (v < 10 ? "$" + v.toFixed(2) : F.usd0(v));
+    const pct1 = (v) => +v.toFixed(1) + "%";
+    const mixTerms = (comM) => [["mc", 1], ["com", comM], ["mcd", sc.mcdMult], ["oth", 1]].filter((t) => r.w[t[0]] > 0).map((t) => F.p(r.w[t[0]], 0) + " × " + t[1].toFixed(2)).join(" + ");
+    const cycle = BM.chemoAdmin + BM.carbo * 15 + BM.pacli * 300;
+    const stay = r.lines.find((l) => l.key === "stay");
+    const calc = {
+      1: ["Chemo " + sc.pChemo + "% × " + sc.cycles + " cycles", "Bevacizumab " + sc.pBev + "% × " + sc.bevDoses + " doses", "PARP " + sc.pParp + "% × " + sc.parpMonths + " months", sc.visits + " visits · " + sc.ctYear + " CT scans · " + sc.ca125 + " CA-125 tests"],
+      2: ["Stay = " + $c(BM.drg736) + " × " + pct1(pM) + " + " + $c(BM.drg737) + " × " + pct1(pC) + " + " + $c(BM.drg738) + " × " + pct1(Math.max(0, 100 - pM - pC)) + " = " + $c(stay.base), "Chemo cycle = " + $c(BM.chemoAdmin) + " + 15 × " + $c(BM.carbo) + " + 300 × " + $c(BM.pacli) + " = " + $c(cycle)],
+      3: ["Hospital care = " + mixTerms(sc.comHosp) + " = " + r.hosp.toFixed(2) + "×", "Physician fees = " + mixTerms(sc.comProf) + " = " + r.prof.toFixed(2) + "×"],
+      4: ["Gyn-onc fees, surgical stay: 100%", "Chemo, imaging, tests: " + sc.inSys + "%", "PARP prescriptions: " + sc.pharmShare + "%"],
+      5: ["Direct " + F.usd0(r.tiers.Direct) + " + associated " + F.usd0(r.tiers.Associated), "+ downstream " + F.usd0(r.tiers.Downstream) + " = " + F.usd0(r.perPatient) + " per patient"],
+      6: [F.usd0(r.perPatient) + " × " + F.n(sc.cases) + " patients = " + F.usd(r.program) + " a year"],
+    };
+    Object.keys(calc).forEach((i) => { $("#how-" + i).innerHTML = calc[i].map((x) => "<div>" + esc(x) + "</div>").join(""); });
+    $("#sum-txt").value = summaryText(sc, r, floor);
+    placePop();
+  };
+  syncFields(null);
   paint();
-  $("#scen-form").addEventListener("submit", (e) => e.preventDefault());
-  $("#scen-form").addEventListener("input", (e) => {
-    const k = e.target.dataset.k; if (!k) return;
+
+  const setField = (k, v, src) => {
+    const f = VM_FIELDS[k];
+    v = +Math.max(f.min, Math.min(f.max, v)).toFixed(vmDec(f.step));
+    if (VM_PAYERS.includes(k)) {
+      v = Math.round(v);
+      const others = VM_PAYERS.filter((x) => x !== k);
+      const fixed = vmApportion(others, others.map((x) => sc[x]), 100 - v);
+      others.forEach((x, i) => { sc[x] = fixed[i]; });
+      sc[k] = v;
+    } else if (k === "pMcc" || k === "pCc") {
+      const o = k === "pMcc" ? "pCc" : "pMcc";
+      sc[k] = v;
+      if (sc[k] + sc[o] > 100) sc[o] = +(100 - sc[k]).toFixed(1);
+    } else sc[k] = v;
+    if (k === "cases") state.volSource = "user";
+    lastKey = k;
+    store.set("scen", sc);
+    syncFields(src);
+    paint();
+  };
+  const form = $("#scen-form");
+  form.addEventListener("submit", (e) => e.preventDefault());
+  form.addEventListener("input", (e) => {
+    const k = e.target.dataset.k; if (!k || !VM_FIELDS[k]) return;
     const v = parseFloat(e.target.value); if (isNaN(v)) return;
-    sc[k] = v; if (k === "cases") state.volSource = "user";
-    store.set("scen", sc); paint();
+    setField(k, v, e.target);
   });
-  $("#scen-reset").addEventListener("click", () => { state.scen = Object.assign({}, SCEN_DEFAULTS); state.volSource = "user"; store.set("scen", state.scen); render(); });
-  $$("[data-preset]").forEach((b) => b.addEventListener("click", () => { sc.cases = +b.dataset.preset; state.volSource = "user"; store.set("scen", sc); render(); }));
+  form.addEventListener("change", (e) => { if (e.target.type === "number") syncFields(null); });
+  form.addEventListener("toggle", (e) => {
+    const d = e.target; if (!d.dataset || !d.dataset.openKey) return;
+    state.vmOpen[d.dataset.openKey] = d.open;
+    if (d.open) paint();
+  }, true);
+  const reset = () => { state.scen = Object.assign({}, SCEN_DEFAULTS); state.volSource = "user"; store.set("scen", state.scen); render(); };
+  $("#scen-reset").addEventListener("click", reset);
+  $("#vm-how-link").addEventListener("click", () => { $("#vm-how").scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); });
+  $("#vm-hero").addEventListener("click", (e) => { if (e.target.closest("[data-vm-reset]")) reset(); });
+  $("#vm-floor").addEventListener("click", () => {
+    const src = isFloor() ? SCEN_DEFAULTS : VM_FLOOR;
+    Object.keys(VM_FLOOR).forEach((k) => { sc[k] = src[k]; });
+    lastKey = null; store.set("scen", sc); syncFields(null); paint();
+  });
+  $$("[data-preset]").forEach((b) => b.addEventListener("click", () => setField("cases", +b.dataset.preset, null)));
+  $("#vm-sens").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-focus]"); if (!b) return;
+    const k = b.dataset.focus, fld = $('[data-fld="' + k + '"]'); if (!fld) return;
+    for (let p = fld.parentElement; p; p = p.parentElement) if (p.tagName === "DETAILS" && !p.open) p.open = true;
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    fld.scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
+    $("#sl-" + k).focus({ preventScroll: true });
+    fld.classList.remove("flash"); void fld.offsetWidth; fld.classList.add("flash");
+    setTimeout(() => fld.classList.remove("flash"), 700);
+  });
+  $("#copy-sum").addEventListener("click", () => {
+    const t = $("#sum-txt").value;
+    const done = (ok) => { $("#copy-msg").textContent = ok ? "Copied to clipboard." : "Clipboard is blocked here. The text is selected; press Ctrl+C or ⌘C."; if (!ok) { $("#sum-txt").focus(); $("#sum-txt").select(); } };
+    try { navigator.clipboard.writeText(t).then(() => done(true), () => done(false)); } catch (e) { done(false); }
+  });
   const vs = $("#vol-src");
   if (vs) vs.addEventListener("change", () => {
     state.volSource = vs.value;
@@ -649,20 +1141,20 @@ function sensitivity(sc, base) {
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const run = (patch) => computeScenario(Object.assign({}, sc, patch)).program;
   const rows = [
-    ["Commercial hospital multiplier ±25%", { comHosp: sc.comHosp * 0.75 }, { comHosp: sc.comHosp * 1.25 }],
-    ["Commercial share ±15 pts (vs. Medicare)", { com: clamp(sc.com - 15, 0, 100), mc: sc.mc + Math.min(15, sc.com) }, { com: sc.com + Math.min(15, sc.mc), mc: clamp(sc.mc - 15, 0, 100) }],
-    ["In-system retention ±15 pts", { inSys: clamp(sc.inSys - 15, 0, 100) }, { inSys: clamp(sc.inSys + 15, 0, 100) }],
-    ["PARP maintenance uptake ±15 pts", { pParp: clamp(sc.pParp - 15, 0, 100) }, { pParp: clamp(sc.pParp + 15, 0, 100) }],
-    ["Bevacizumab uptake ±15 pts", { pBev: clamp(sc.pBev - 15, 0, 100) }, { pBev: clamp(sc.pBev + 15, 0, 100) }],
-    ["Major-complication share ±10 pts", { pMcc: clamp(sc.pMcc - 10, 0, 100), pCc: sc.pCc + Math.min(10, sc.pMcc) }, { pMcc: clamp(sc.pMcc + 10, 0, 100), pCc: clamp(sc.pCc - 10, 0, 100) }],
-  ].map((r) => { const a = run(r[1]), b = run(r[2]); return { label: r[0], lo: Math.min(a, b), hi: Math.max(a, b) }; });
+    ["Commercial hospital prices ±25%", "comHosp", { comHosp: sc.comHosp * 0.75 }, { comHosp: sc.comHosp * 1.25 }],
+    ["Commercial share of patients ±15 pts", "com", { com: clamp(sc.com - 15, 0, 100), mc: sc.mc + Math.min(15, sc.com) }, { com: sc.com + Math.min(15, sc.mc), mc: clamp(sc.mc - 15, 0, 100) }],
+    ["Care kept in-system ±15 pts", "inSys", { inSys: clamp(sc.inSys - 15, 0, 100) }, { inSys: clamp(sc.inSys + 15, 0, 100) }],
+    ["PARP inhibitor use ±15 pts", "pParp", { pParp: clamp(sc.pParp - 15, 0, 100) }, { pParp: clamp(sc.pParp + 15, 0, 100) }],
+    ["Bevacizumab use ±15 pts", "pBev", { pBev: clamp(sc.pBev - 15, 0, 100) }, { pBev: clamp(sc.pBev + 15, 0, 100) }],
+    ["Major-complication share ±10 pts", "pMcc", { pMcc: clamp(sc.pMcc - 10, 0, 100), pCc: sc.pCc + Math.min(10, sc.pMcc) }, { pMcc: clamp(sc.pMcc + 10, 0, 100), pCc: clamp(sc.pCc - 10, 0, 100) }],
+  ].map((r) => { const a = run(r[2]), b = run(r[3]); return { label: r[0], k: r[1], lo: Math.min(a, b), hi: Math.max(a, b) }; });
   rows.sort((a, b) => (b.hi - b.lo) - (a.hi - a.lo));
   const mn = Math.min(base, ...rows.map((r) => r.lo)), mx = Math.max(base, ...rows.map((r) => r.hi)), span = mx - mn || 1;
   const pos = (v) => ((v - mn) / span * 100).toFixed(2) + "%";
-  return rows.map((r) => '<div class="trow"><span>' + r.label + '</span><div class="ttrack" tabindex="0" ' + tipAttr("<b>" + r.label + "</b><br>" + F.usd(r.lo) + " to " + F.usd(r.hi) + "<br>Base " + F.usd(base)) + '><div class="trange" style="left:' + pos(r.lo) + ";width:calc(" + pos(r.hi) + " - " + pos(r.lo) + ')"></div><div class="tbase" style="left:' + pos(base) + '"></div></div></div>').join("") +
-    '<div class="trow"><span></span><div style="display:flex;justify-content:space-between;font-size:var(--fs-xs);color:var(--muted)" class="num"><span>' + F.usd(mn) + "</span><span>" + F.usd(mx) + "</span></div></div>";
+  return rows.map((r) => '<button type="button" class="trow" data-focus="' + r.k + '" ' + tipAttr("<b>" + r.label + "</b><br>" + F.usd(r.lo) + " to " + F.usd(r.hi) + "<br>Your scenario: " + F.usd(base)) + '><span class="tl"><span>' + r.label + "</span><small>" + F.usd(r.lo) + " to " + F.usd(r.hi) + '</small></span><span class="ttrack"><span class="trange" style="left:' + pos(r.lo) + ";width:calc(" + pos(r.hi) + " - " + pos(r.lo) + ')"></span><span class="tbase" style="left:' + pos(base) + '"></span></span></button>').join("") +
+    '<div class="taxis"><span></span><div><span>' + F.usd(mn) + "</span><span>" + F.usd(mx) + "</span></div></div>";
 }
-function summaryText(sc, r) {
+function summaryText(sc, r, floor) {
   return [
     "GYNECOLOGIC ONCOLOGY PROGRAM VALUE: SCENARIO SUMMARY",
     "",
@@ -675,6 +1167,7 @@ function summaryText(sc, r) {
     "  Downstream program care kept in-system: " + F.usd(r.tiers.Downstream * sc.cases),
     "",
     "For every $1 of direct professional revenue, the program is associated with about $" + (r.ratio || 0).toFixed(1) + " of health-system revenue.",
+    "Conservative floor (Medicare prices, index hospital stay only): about $" + (floor.ratio || 0).toFixed(1) + " per $1.",
     "",
     "Method: Medicare 2024 national average payments (CMS public use files) adjusted by payer mix (commercial hospital " + sc.comHosp + "x, commercial professional " + sc.comProf + "x, Medicaid " + sc.mcdMult + "x) and an in-system retention of " + sc.inSys + "%. Other specialties' professional fees are excluded. This is a scenario, not measured revenue; contribution margin requires local cost data.",
   ].join("\n");
@@ -699,22 +1192,22 @@ views.providers = function (el) {
   el.innerHTML =
     '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><div class="ctl"><label for="prov-st">Practice state</label><select id="prov-st"><option value="ALL">All states</option>' + stOpts.map((s) => '<option value="' + s + '"' + (sel === s ? " selected" : "") + ">" + (STATE_NAMES[s] || s) + "</option>").join("") + "</select></div>" + chip("pub", "CMS Medicare 2024 · fee-for-service only") + "</div>" +
     '<div class="kpis">' +
-      kpi("Gyn oncologists in Medicare", F.n(ps.length), "claim specialty, 2024") +
-      kpi("Medicare Part B payments", F.usd(tot), "median " + F.usd(median(ps.map((p) => p.pay))) + " per gyn onc") +
-      kpi("In-office drug share", tot ? F.p(drug / tot, 0) : "–", F.n(ps.filter((p) => p.drug > 0).length) + " gyn oncs bill Part B drugs") +
-      kpi("Part D prescribed", F.usd(pdTot), pdTot ? F.p(parp / pdTot, 0) + " PARP inhibitors" : "") +
-      kpi("Rural practice locations", ps.length ? F.p(ruralN / ps.length, 0) : "–", "practice ZIP RUCA 4–10") +
-      kpi("Beneficiary risk score", wavg("risk") == null ? "–" : wavg("risk").toFixed(2), "average age " + (wavg("age") == null ? "–" : wavg("age").toFixed(0))) +
+      kpi("Gyn oncologists in Medicare", F.n(ps.length), "claim specialty, 2024", "", "pf_n") +
+      kpi("Medicare Part B payments", F.usd(tot), "median " + F.usd(median(ps.map((p) => p.pay))) + " per gyn onc", "", "pf_pay") +
+      kpi("In-office drug share", tot ? F.p(drug / tot, 0) : "–", F.n(ps.filter((p) => p.drug > 0).length) + " gyn oncs bill Part B drugs", "", "pf_drug") +
+      kpi("Part D prescribed", F.usd(pdTot), pdTot ? F.p(parp / pdTot, 0) + " PARP inhibitors" : "", "", "pf_partd") +
+      kpi("Rural practice locations", ps.length ? F.p(ruralN / ps.length, 0) : "–", "practice ZIP RUCA 4–10", "", "pf_rural") +
+      kpi("Beneficiary risk score", wavg("risk") == null ? "–" : wavg("risk").toFixed(2), "average age " + (wavg("age") == null ? "–" : wavg("age").toFixed(0)), "", "pf_risk") +
     "</div>" +
     '<div class="grid">' +
-      '<section class="panel c6"><div class="panel-h"><h2>Medicare Part B payment per gyn oncologist</h2><span class="meta">number of gyn oncs</span></div>' + barsHTML(hist, { fmt: F.n }) + '<p class="note">The long right tail is practices with in-office infusion, where drug payments flow through the physician\'s billing.</p></section>' +
-      '<section class="panel c6"><div class="panel-h"><h2>Professional service mix</h2><span class="meta">Medicare payments by service type</span></div>' + barsHTML(svc, { fmt: F.usd }) + '<p class="note">Service-level rows exclude codes billed for fewer than 11 beneficiaries, so these sum to less than total payments.</p></section>' +
-      '<section class="panel c7"><div class="panel-h"><h2>Part D drugs prescribed by gyn oncologists</h2><span class="meta">gross drug cost</span></div>' + barsHTML(dr, { fmt: F.usd }) + '<p class="note">Gross cost includes plan and patient payments. It becomes health-system revenue only when a system-owned specialty pharmacy dispenses the drug.</p></section>' +
+      '<section class="panel c6"><div class="panel-h">' + h2i("Medicare Part B payment per gyn oncologist", "pf_hist") + '<span class="meta">number of gyn oncs</span></div>' + barsHTML(hist, { fmt: F.n }) + '<p class="note">The long right tail is practices with in-office infusion, where drug payments flow through the physician\'s billing.</p></section>' +
+      '<section class="panel c6"><div class="panel-h">' + h2i("Professional service mix", "pf_svc") + '<span class="meta">Medicare payments by service type</span></div>' + barsHTML(svc, { fmt: F.usd }) + '<p class="note">Service-level rows exclude codes billed for fewer than 11 beneficiaries, so these sum to less than total payments.</p></section>' +
+      '<section class="panel c7"><div class="panel-h">' + h2i("Part D drugs prescribed by gyn oncologists", "pf_drugs") + '<span class="meta">gross drug cost</span></div>' + barsHTML(dr, { fmt: F.usd }) + '<p class="note">Gross cost includes plan and patient payments. It becomes health-system revenue only when a system-owned specialty pharmacy dispenses the drug.</p></section>' +
       '<section class="panel c5"><div class="panel-h"><h2>Who gyn oncologists treat</h2><span class="meta">Medicare beneficiaries</span></div><div class="kpis" style="grid-template-columns:1fr 1fr">' +
-        kpi("Beneficiaries", F.n(benes), "summed across providers") +
-        kpi("Dual-eligible", benes ? F.p(sum(ps.map((p) => p.dual)) / benes, 0) : "–", "Medicare + Medicaid") +
-        kpi("Aged 75+", benes ? F.p(sum(ps.map((p) => p.o75)) / benes, 0) : "–", "of beneficiaries") +
-        kpi("Avg. HCC risk", wavg("risk") == null ? "–" : wavg("risk").toFixed(2), "1.0 = average beneficiary") +
+        kpi("Beneficiaries", F.n(benes), "summed across providers", "", "pf_benes") +
+        kpi("Dual-eligible", benes ? F.p(sum(ps.map((p) => p.dual)) / benes, 0) : "–", "Medicare + Medicaid", "", "pf_dual") +
+        kpi("Aged 75+", benes ? F.p(sum(ps.map((p) => p.o75)) / benes, 0) : "–", "of beneficiaries", "", "pf_o75") +
+        kpi("Avg. HCC risk", wavg("risk") == null ? "–" : wavg("risk").toFixed(2), "1.0 = average beneficiary", "", "pf_risk") +
       '</div><p class="note">Provider-level records are aggregated here; the platform does not show named physicians.</p></section>' +
     "</div>";
   $("#prov-st").addEventListener("change", (e) => { state.provState = e.target.value; render(); });
@@ -733,7 +1226,7 @@ views.research = function (el) {
   ];
   el.innerHTML =
     '<div class="grid">' +
-      '<section class="panel c6"><div class="panel-h"><h2>Recruiting gyn-cancer trials with a Minnesota site</h2><span class="meta">by health system</span></div>' +
+      '<section class="panel c6"><div class="panel-h">' + h2i("Recruiting gyn-cancer trials with a Minnesota site", "rq_trials") + '<span class="meta">by health system</span></div>' +
         barsHTML(DATA.trials.map((t) => ({ label: t.org, v: t.n, tip: t.n + " recruiting trials" })), { fmt: (v) => v + " trials" }) +
         '<p class="note">ClinicalTrials.gov API, ' + DATA.facts.trials_mn_total + ' recruiting trials matched on ovarian, endometrial, uterine, or cervical cancer. The condition match is broad, and a trial counts once per system.</p></section>' +
       '<section class="panel c6"><div class="panel-h"><h2>Why specialist care is part of the value story</h2></div>' +
@@ -748,6 +1241,7 @@ views.research = function (el) {
     "</div>";
 };
 
+// @@LICENSED_BEGIN (removed from the public build)
 // ------------------------------------------------------------ licensed atlas
 function specGroup(p) {
   if (p.gyn_any) return "Gyn oncologist";
@@ -756,6 +1250,35 @@ function specGroup(p) {
   return "Other specialty";
 }
 const SPEC_COLORS = { "Gyn oncologist": "var(--s1)", "Other surgeon / OB-GYN": "var(--s2)", "Other specialty": "var(--s3)" };
+Object.assign(INFO, {
+  at_hosp: { t: "Hospitals", d: "Hospitals in the MarketView extract, split by whether the selected cohort's count is disclosed or suppressed (*).",
+    i: "Suppressed hospitals had activity too small to publish. They stay unknown and are never filled in.",
+    f: ["Hospitals = count of facility records", "Disclosed = cohort cell is a number; suppressed = cohort cell is *"] },
+  at_visible: { t: "Visible facility count", d: "Sum of the disclosed hospital counts for the selected cohort.",
+    i: "Not unique patients: a patient can appear at more than one hospital, suppressed hospitals add nothing, and the period is unspecified. Use it to compare hospitals, not to size the market.",
+    f: ["Visible count = Σ facility cohort count where the cell is disclosed"] },
+  at_pract: { t: "Practitioners", d: "Practitioners in the extract. The detail line counts those labeled gynecologic oncology in either specialty field, and in the primary field.",
+    i: "The labels come from MarketView and may not match board certification.",
+    f: ["Gyn-onc labeled = specialty 1 or 2 contains \"gynecologic\"", "Primary = specialty 1 contains \"gynecologic\""] },
+  at_match: { t: "Matched to Medicare gyn-onc file", d: "Gyn-onc labeled practitioners whose NPI also appears in the public CMS 2024 gyn-onc provider file.",
+    i: "A cross-check on labels. A low match means MarketView and Medicare disagree on who is a gyn oncologist, or those physicians don't bill Medicare fee-for-service.",
+    f: ["Matched = gyn-onc labeled practitioners with NPI in the Medicare file", "Shown as matched / gyn-onc labeled"] },
+  at_multi: { t: "Multi-site practitioners", d: "Practitioners linked to two or more hospitals in the extract.",
+    i: "Shows visiting and multi-campus surgeons. Links are affiliations, not referrals.",
+    f: ["Count of practitioners with more than one practitioner–hospital link"] },
+  at_flags: { t: "Coverage flags", d: "Hospitals with recorded cohort activity but no linked gyn-onc labeled practitioner active in that cohort.",
+    i: "A lead to check, not a finding. Possible reasons: a visiting surgeon, general surgeons operating, or a labeling gap. Validate with SGO before sharing.",
+    f: ["Flag if the hospital's cohort cell is disclosed or suppressed", "  and gyn oncologists among its active linked practitioners = 0", "Active link = the link's cohort cell is disclosed or suppressed"] },
+  at_map: { t: "Hospitals in the extract", d: "Hospital locations sized by disclosed cohort count, with public gyn-onc practice ZIPs for context.",
+    i: "Bigger bubbles mean more disclosed patients. Dashed rings are hospitals with suppressed counts, drawn at a fixed size because their volume is unknown.",
+    f: ["Radius = square-root scale of count, 2.5 to 14 px", "  (bubble area grows with count)"] },
+  at_team: { t: "Care-team composition", d: "Practitioners linked to each hospital whose link shows activity in the selected cohort, grouped by specialty.",
+    i: "Shows which specialties each program draws in. Other specialties are the associated care team; their revenue is not credited to gyn oncology.",
+    f: ["Team = practitioners with an active link to the hospital", "Gyn oncologist = gyn-onc label", "Other surgeon / OB-GYN = specialty mentions surgery, urology,", "  colon, rectal, obstetric or gynec", "Other specialty = everyone else"] },
+  at_table: { t: "Hospital detail", d: "One row per hospital for the selected cohort.",
+    i: "Sort by Gyn oncs to find coverage flags, or by Nearest gyn-onc ZIP to see how isolated each hospital is.",
+    f: ["Patients = cohort count (disclosed, * suppressed, or not reported)", "Decile = MarketView rank decile; its universe is undocumented", "Linked team = practitioners with an active link", "Gyn oncs = gyn-onc labeled among them", "Nearest gyn-onc ZIP = haversine miles to the nearest public practice ZIP"] },
+});
 function loadLicensed(file) {
   const rd = new FileReader();
   rd.onload = () => {
@@ -805,21 +1328,21 @@ views.atlas = function (el) {
       '<button type="button" class="btn small" id="lic-unload">Unload file</button></div>' +
     '<div class="banner"><span class="ic">!</span><div><b>Restricted data.</b> Counts cover an unspecified period. Suppressed cells (*) stay unknown and are never summed or imputed. Practitioner–hospital links are affiliations, not referrals. Don\'t screenshot this view for anyone outside BData.</div></div>' +
     '<div class="kpis">' +
-      kpi("Hospitals", F.n(lic.facilities.length), nNum + " disclosed · " + nSup + " suppressed") +
-      kpi("Visible facility count", F.n(visible), "sum of disclosed cells, not unique patients") +
-      kpi("Practitioners", F.n(lic.practitioners.length), F.n(gynAny.length) + " gyn-onc labeled (" + lic.practitioners.filter((p) => p.gyn_pri).length + " primary)") +
-      kpi("Matched to Medicare gyn-onc file", F.n(gynAny.filter((p) => p.medicare_gynonc).length) + " / " + gynAny.length, "by NPI, public CMS 2024") +
-      kpi("Multi-site practitioners", F.n(multi), "linked to 2+ hospitals") +
-      kpi("Coverage flags", F.n(flags.length), "activity, no gyn onc linked") +
+      kpi("Hospitals", F.n(lic.facilities.length), nNum + " disclosed · " + nSup + " suppressed", "", "at_hosp") +
+      kpi("Visible facility count", F.n(visible), "sum of disclosed cells, not unique patients", "", "at_visible") +
+      kpi("Practitioners", F.n(lic.practitioners.length), F.n(gynAny.length) + " gyn-onc labeled (" + lic.practitioners.filter((p) => p.gyn_pri).length + " primary)", "", "at_pract") +
+      kpi("Matched to Medicare gyn-onc file", F.n(gynAny.filter((p) => p.medicare_gynonc).length) + " / " + gynAny.length, "by NPI, public CMS 2024", "", "at_match") +
+      kpi("Multi-site practitioners", F.n(multi), "linked to 2+ hospitals", "", "at_multi") +
+      kpi("Coverage flags", F.n(flags.length), "activity, no gyn onc linked", "", "at_flags") +
     "</div>" +
     '<div class="grid">' +
-      '<section class="panel c5"><div class="panel-h"><h2>Hospitals in the extract</h2><span class="meta">bubble = disclosed count; dashed = suppressed</span></div><div class="map-wrap" id="lic-map"></div><div class="legend"><span><i class="sw" style="background:var(--s1)"></i>Disclosed count</span><span><i class="sw" style="background:transparent;box-shadow:inset 0 0 0 2px var(--s2)"></i>Suppressed</span><span><i class="sw" style="background:var(--map-site);border-radius:50%"></i>Public gyn-onc practice ZIP</span></div></section>' +
-      '<section class="panel c7"><div class="panel-h"><h2>Care-team composition</h2><span class="meta">linked practitioners active in the cohort</span></div>' +
+      '<section class="panel c5"><div class="panel-h">' + h2i("Hospitals in the extract", "at_map") + '<span class="meta">bubble = disclosed count; dashed = suppressed</span></div><div class="map-wrap" id="lic-map"></div><div class="legend"><span><i class="sw" style="background:var(--s1)"></i>Disclosed count</span><span><i class="sw" style="background:transparent;box-shadow:inset 0 0 0 2px var(--s2)"></i>Suppressed</span><span><i class="sw" style="background:var(--map-site);border-radius:50%"></i>Public gyn-onc practice ZIP</span></div></section>' +
+      '<section class="panel c7"><div class="panel-h">' + h2i("Care-team composition", "at_team") + '<span class="meta">linked practitioners active in the cohort</span></div>' +
         '<div class="legend">' + Object.keys(SPEC_COLORS).map((k) => '<span><i class="sw" style="background:' + SPEC_COLORS[k] + '"></i>' + k + "</span>").join("") + "</div>" +
         '<div class="bars">' + facRows.filter((r) => r.team > 0).sort((a, b) => b.team - a.team).map((r) => '<div class="bar"><div class="bm"><span class="lb">' + esc(r.name) + '</span><span class="vl">' + r.team + "</span></div>" +
           '<div class="stack" style="height:12px">' + Object.keys(SPEC_COLORS).map((k) => { const n = r.groups.get(k) || 0; return n ? '<div tabindex="0" style="flex:' + n + ";background:" + SPEC_COLORS[k] + '" ' + tipAttr("<b>" + esc(r.name) + "</b><br>" + k + ": " + n) + "></div>" : ""; }).join("") + "</div></div>").join("") + "</div>" +
         '<p class="note">Shown as the associated care team. SGO does not want other specialties\' professional revenue credited to gyn oncology.</p></section>' +
-      '<section class="panel c12"><div class="panel-h"><h2>Hospital detail</h2><span class="meta">click a row for linked practitioners</span></div>' +
+      '<section class="panel c12"><div class="panel-h">' + h2i("Hospital detail", "at_table") + '<span class="meta">click a row for linked practitioners</span></div>' +
         sortable("lic-fac", [
           { k: "name", h: "Hospital" }, { k: "system", h: "System" }, { k: "city", h: "City" },
           { k: "cnt", h: "Patients", r: 1, f: (v, r) => r.st === "num" ? F.n(v) : r.st === "sup" ? '<span class="sup">* suppressed</span>' : '<span class="blank">not reported</span>' },
@@ -863,6 +1386,7 @@ function openFacility(id) {
   $("#dclose").focus();
 }
 
+// @@LICENSED_END
 views.methods = function (el) {
   const src = [
     ["CMS Medicare Physician & Other Practitioners", "NPI; NPI × HCPCS; national × HCPCS", "2024", "Public", "pub", "Provider footprint, value model"],
@@ -918,7 +1442,7 @@ function render() {
   $("#lic-dot").className = "dot " + (state.lic ? "local" : "off");
   $("#lic-txt").textContent = state.lic ? "MarketView · loaded locally" : "MarketView · not loaded";
   buildNav();
-  tt.hidden = true;
+  tt.hidden = true; closePop(false);
   const el = $("#view");
   views[state.view](el);
 }
