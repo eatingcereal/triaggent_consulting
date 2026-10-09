@@ -1443,7 +1443,8 @@ views.value = function (el) {
         '<section class="panel"><div class="panel-h">' + h2i("Line items", "val_lines") + '<span class="meta">every line tagged with its CMS source</span></div><div id="vm-formula"></div><div id="vm-lines"></div></section>' +
         '<section class="panel"><div class="panel-h"><h2>Leadership summary</h2><button type="button" class="btn primary" id="copy-sum">Copy summary</button></div><textarea class="copybox" id="sum-txt" readonly aria-label="Leadership summary text"></textarea><p class="note" id="copy-msg"></p></section>' +
       "</div>" +
-      '<section class="panel c12" id="vm-how"><div class="panel-h"><h2>How the model works</h2><span class="meta">six steps, shown with your current scenario</span></div>' +
+    "</div>" +
+    '<section class="panel" id="vm-how"><div class="panel-h"><h2>How the model works</h2><span class="meta">six steps, shown with your current scenario</span></div>' +
         '<ol class="how">' + VM_HOW.map((h, i) => '<li><span class="how-n" aria-hidden="true">' + (i + 1) + '</span><div class="how-b"><h3>' + esc(h[0]) + "</h3><p>" + esc(h[1]) + '</p><div class="calc" id="how-' + (i + 1) + '"></div></div></li>').join("") + "</ol>" +
         '<div class="how-cols">' +
           '<div><h3 class="how-h">What the model leaves out</h3><ul class="how-out">' + VM_OUT.map((x) => "<li>" + esc(x) + "</li>").join("") + "</ul></div>" +
@@ -1458,8 +1459,7 @@ views.value = function (el) {
         "</div>" +
         '<p class="note" style="margin:0">With PJI claims, observed allowed amounts would replace each Medicare price, and the in-system share would be measured from where patients actually received care instead of set by a slider.</p>' +
       "</section>" +
-      '<section class="panel c12"><div class="panel-h"><h2>Terms on this page</h2></div><dl class="gloss">' + VM_GLOSSARY.map((g) => "<div><dt>" + esc(g[0]) + "</dt><dd>" + esc(g[1]) + "</dd></div>").join("") + "</dl></section>" +
-    "</div>";
+    '<section class="panel"><div class="panel-h"><h2>Terms on this page</h2></div><dl class="gloss">' + VM_GLOSSARY.map((g) => "<div><dt>" + esc(g[0]) + "</dt><dd>" + esc(g[1]) + "</dd></div>").join("") + "</dl></section>";
   const topbar = $(".topbar");
   const setTop = () => document.documentElement.style.setProperty("--topbar-h", topbar.offsetHeight + "px");
   setTop();
