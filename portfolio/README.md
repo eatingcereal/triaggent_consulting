@@ -21,13 +21,18 @@ it, run `python -m mission_control.export_static_demo <this repo>/portfolio/miss
 from `simulation/isaac` in the source repo, then replace this directory. It must
 stay together: every URL is relative to `index.html`.
 
-`beyond-wrvus/` is a static, explorable copy of the Beyond wRVUs value platform at
-`/portfolio/beyond-wrvus/`. It runs entirely in the browser on public data (CMS Medicare 2024, NCI
+`beyond-wrvus/` is a password-protected, explorable copy of the Beyond wRVUs value platform at
+`/portfolio/beyond-wrvus/`. `index.html` holds only the AES-256-GCM-encrypted page and a password
+form, which decrypts it in the browser (key from PBKDF2-SHA256). Nothing runs server-side, and the
+current files hold only ciphertext. Commits before the password was added still contain the
+plaintext page. It runs on public data (CMS Medicare 2024, NCI
 State Cancer Profiles, USDA, Census, ClinicalTrials.gov) with d3 and topojson vendored under
 `vendor/`. The password-protected `sgo/` app carries the full version, including the licensed
 MarketView layer; this copy omits that module and any internal paths. To refresh it, run
-`python3 build_platform.py --public` in the BData repo's `women opportunity/platform/` folder, then
-replace this directory. Keep `index.html` and `vendor/` together.
+`python3 build_platform.py --public` and then `node encrypt_public_copy.mjs` in the BData repo's
+`women opportunity/platform/` folder. The second command asks for the page password and writes the
+encrypted `index.html` and `vendor/` here. Never copy the plaintext build into this directory. Keep
+`index.html` and `vendor/` together.
 
 The other portfolio cards link to separate sites:
 
