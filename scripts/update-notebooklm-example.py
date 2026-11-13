@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
-parser.add_argument('--demo-url', default='https://notebooklm.triaggent.com/demo')
+parser.add_argument('--demo-url', default='https://notebooklm.triaggent.com/')
 args = parser.parse_args()
 parsed = urlparse(args.demo_url)
 if parsed.scheme != 'https' or not parsed.hostname or any(c in args.demo_url for c in '\"\'<>'):
