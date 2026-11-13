@@ -33,7 +33,7 @@ Keep local contact settings and any plaintext SGO datasets out of the public rep
 ## Triaggent Agentic Agent project example
 
 The portfolio card for the document research assistant links to
-`https://notebooklm.triaggent.com/`. The project landing page explains its capabilities;
+`https://agenticagent.triaggent.com/`. The project landing page explains its capabilities;
 its **Demo** button opens a fresh chat without sign-in. Its editable markup is in
 `components/notebooklm-example.html`. After editing it, update the bundled homepage:
 
