@@ -30,7 +30,7 @@ This repository does not contain a GitHub Actions or GitHub Pages deployment set
 
 Keep local contact settings and any plaintext SGO datasets out of the public repository. The relevant paths are gitignored; the SGO deployment details are in [sgo-next/README.md](sgo-next/README.md).
 
-## NotebookLM project example
+## Triaggent Agentic Agent project example
 
 The portfolio card for the document research assistant links to
 `https://notebooklm.triaggent.com/`. The project landing page explains its capabilities;
