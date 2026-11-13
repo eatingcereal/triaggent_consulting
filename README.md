@@ -45,3 +45,7 @@ Use `--demo-url https://...` to change the target. The updater changes only the
 JSON-encoded template and preserves the embedded runtime assets and existing
 portfolio projects. Publish the card after the application hostname is ready.
 The application and its private data are deployed independently from this site.
+
+## Mobile layout
+
+The homepage adapts to phone and tablet widths, with a collapsible navigation menu, stacked content/project grids, and a scrollable contact dialog. Styles are maintained in `components/mobile-layout.css`, and the mobile menu markup is in `components/mobile-navigation.html`. Run `python3 scripts/update-mobile-layout.py` to update their named blocks in the bundled template. This preserves embedded runtime assets; the existing project-card updater also preserves these mobile changes.
