@@ -29,3 +29,18 @@ Build the [course source repository](https://github.com/Jacob19999/gradient-desc
 This repository does not contain a GitHub Actions or GitHub Pages deployment setup. Merge changes here, then publish the repository's public site files to the web root configured for `triaggent.com` using the hosting account's deployment method. Keep the full `portfolio/gradient-descent/` directory together so its relative asset links resolve.
 
 Keep local contact settings and any plaintext SGO datasets out of the public repository. The relevant paths are gitignored; the SGO deployment details are in [sgo-next/README.md](sgo-next/README.md).
+
+## NotebookLM project example
+
+The portfolio card for the document research assistant links to
+`https://notebooklm.triaggent.com/demo`. Its editable markup is in
+`components/notebooklm-example.html`. After editing it, update the bundled homepage:
+
+```bash
+python3 scripts/update-notebooklm-example.py
+```
+
+Use `--demo-url https://...` to change the target. The updater changes only the
+JSON-encoded template and preserves the embedded runtime assets and existing
+portfolio projects. Publish the card after the application hostname is ready.
+The application and its private data are deployed independently from this site.
