@@ -30,6 +30,49 @@ This repository does not contain a GitHub Actions or GitHub Pages deployment set
 
 Keep local contact settings and any plaintext SGO datasets out of the public repository. The relevant paths are gitignored; the SGO deployment details are in [sgo-next/README.md](sgo-next/README.md).
 
+Publish the root `.htaccess` and the directory `.htaccess` files along with the
+site. They disable directory listings, block configuration/source directories
+(including the separate `sgo-next/` application), and set HSTS, anti-framing,
+content-type, referrer, and content-security headers. Apache/LiteSpeed must allow
+these overrides and enable `mod_headers` and `mod_rewrite`. If the hosting CDN
+replaces security headers, configure it to preserve these policies. Keep the
+hosting account's existing HTTP-to-HTTPS redirect enabled.
+
+The homepage CSP approves its inline scripts by hash. Both homepage update
+scripts refresh those hashes automatically; after other homepage script edits,
+run `python3 scripts/security_policy.py` and publish `.htaccess` with `index.html`.
+Its bundled component compiler still needs `unsafe-eval` and blob scripts; the
+portfolio exports need inline scripts, including the document decrypted by the
+Beyond wRVUs password form. The policies restrict their network destinations and
+framing without disabling those features.
+
+Contact confirmations contain fixed text only. Contact submissions reserve an
+atomic per-IP slot before email delivery (45 seconds by default), at most three
+submissions per recipient per hour, and a global cap of 60 per hour (configurable
+with `global_rate_limit_per_hour`). PHP login attempts use the same locked storage
+to enforce eight attempts per IP per ten minutes, with a global cap of 64. Both
+features fail closed if the PHP user's private temporary storage is unavailable.
+
+### Security regression checks
+
+The PHP tests run in a disposable local container whose mail transport captures
+messages locally. They never deliver test emails. Start a fresh container for
+each run so the counters and captured messages start empty:
+
+```bash
+docker build -t triaggent-security-tests tests
+docker run -d --rm --name triaggent-security-tests -p 127.0.0.1:8811:80 \
+  -v "$PWD:/var/www/html:ro" triaggent-security-tests
+python3 tests/check-web-security.py http://127.0.0.1:8811
+docker exec --user www-data triaggent-security-tests php tests/rate-limit.php
+docker exec triaggent-security-tests php tests/check-captured-mail.php
+docker stop triaggent-security-tests
+```
+
+In `sgo-next/`, run `npm ci`, `npm test`, `npm run build`, `npm run test:http`,
+and `npm audit`. The HTTP tests start their own local production server and
+generate disposable credentials and private state.
+
 ## Triaggent Agentic Agent project example
 
 The portfolio card for the document research assistant links to

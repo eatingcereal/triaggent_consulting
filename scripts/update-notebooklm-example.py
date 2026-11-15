@@ -9,6 +9,7 @@ import shutil
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
+from security_policy import update_homepage_policy
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -62,4 +63,5 @@ result = re.search(pattern, updated, re.S)
 if not result or json.loads(result[2]).count('id="notebooklm-example"') != 1:
     raise SystemExit('Updated page did not contain exactly one project card; no files changed')
 write_atomically(page, updated)
+update_homepage_policy(ROOT)
 print('Updated NotebookLM project example:', args.demo_url)

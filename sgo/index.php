@@ -22,7 +22,7 @@ $v = static function (string $rel): string {
   <meta name="color-scheme" content="light dark">
   <title><?php echo $logged ? 'SGO Market Atlas' : 'Sign in — SGO Market Atlas'; ?></title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%234f46e5'/%3E%3Cpath d='M16 7 L25 25 L7 25 Z' fill='none' stroke='white' stroke-width='2' stroke-linejoin='round' opacity='.55'/%3E%3Ccircle cx='16' cy='17' r='3' fill='white'/%3E%3C/svg%3E">
-  <script>
+  <script nonce="<?php echo sgo_nonce(); ?>">
     (function () {
       try {
         var t = localStorage.getItem('sgo-theme');

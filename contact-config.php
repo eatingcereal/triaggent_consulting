@@ -30,4 +30,5 @@ return [
     // Simple abuse protection
     'max_message_length' => 8000,
     'rate_limit_seconds' => 45,
+    'global_rate_limit_per_hour' => 60,
 ];

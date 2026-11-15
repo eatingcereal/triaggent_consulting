@@ -117,13 +117,13 @@ export default function Dashboard() {
           <button className="icon-btn" id="theme-toggle" type="button" aria-label="Toggle theme">
             <span className="lbl">Theme</span>
           </button>
-          <a className="icon-btn" href="/api/logout">
+          <form method="post" action="/api/logout"><button className="icon-btn" type="submit">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M15 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3" />
               <path d="M10 8l-4 4 4 4M6 12h9" />
             </svg>
             <span className="lbl">Sign out</span>
-          </a>
+          </button></form>
         </div>
       </aside>
       <div className="content">

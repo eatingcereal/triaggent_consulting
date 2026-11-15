@@ -1,9 +1,7 @@
-import { getIronSession } from "iron-session";
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
-import { sessionOptions, type SessionData } from "@/lib/session";
+import { isAuthenticated } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -24,13 +22,12 @@ const ALLOWED: Record<string, string> = {
 };
 
 export async function GET(req: Request) {
-  const session = await getIronSession<SessionData>(await cookies(), sessionOptions);
-  if (!session.loggedIn) {
+  if (!(await isAuthenticated())) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
   const key = new URL(req.url).searchParams.get("file") ?? "";
-  const fname = ALLOWED[key];
+  const fname = Object.hasOwn(ALLOWED, key) ? ALLOWED[key] : undefined;
   if (!fname) {
     return NextResponse.json({ ok: false, error: "unknown file" }, { status: 400 });
   }

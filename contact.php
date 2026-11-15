@@ -9,8 +9,10 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/rate-limit.php';
+require_once __DIR__ . '/security-headers.php';
+triaggent_security_headers("default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
 header('Content-Type: application/json; charset=utf-8');
-header('X-Content-Type-Options: nosniff');
 
 // Same-origin browser form posts only need CORS for cross-origin; allow simple POSTs.
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -55,34 +57,27 @@ function clean_header(string $value): string
 
 function read_payload(): array
 {
+    if ((int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 65536) {
+        respond(413, ['ok' => false, 'error' => 'Message is too large.']);
+    }
     $contentType = $_SERVER['CONTENT_TYPE'] ?? $_SERVER['HTTP_CONTENT_TYPE'] ?? '';
     if (stripos($contentType, 'application/json') !== false) {
-        $raw = file_get_contents('php://input') ?: '';
+        $raw = file_get_contents('php://input', false, null, 0, 65537) ?: '';
+        if (strlen($raw) > 65536) {
+            respond(413, ['ok' => false, 'error' => 'Message is too large.']);
+        }
         $data = json_decode($raw, true);
         return is_array($data) ? $data : [];
     }
     return $_POST;
 }
 
-// --- Rate limit (per IP) ---
-$rateSeconds = (int) ($config['rate_limit_seconds'] ?? 45);
-$rateDir = sys_get_temp_dir() . '/triaggent_contact_rate';
-if (!is_dir($rateDir)) {
-    @mkdir($rateDir, 0700, true);
-}
-$rateFile = $rateDir . '/' . hash('sha256', client_ip()) . '.json';
-if ($rateSeconds > 0 && is_file($rateFile)) {
-    $prev = json_decode((string) @file_get_contents($rateFile), true);
-    $last = (int) ($prev['t'] ?? 0);
-    if ($last > 0 && (time() - $last) < $rateSeconds) {
-        respond(429, [
-            'ok' => false,
-            'error' => 'Please wait a moment before sending another message.',
-        ]);
+$data = read_payload();
+foreach (['name', 'email', 'subject', 'message', 'website', 'company_url'] as $field) {
+    if (isset($data[$field]) && !is_string($data[$field])) {
+        respond(400, ['ok' => false, 'error' => 'Invalid form fields.']);
     }
 }
-
-$data = read_payload();
 
 // Honeypot: bots fill this; humans never see it
 $honeypot = trim((string) ($data['website'] ?? $data['company_url'] ?? ''));
@@ -119,6 +114,20 @@ $name = clean_header($name);
 $email = clean_header($email);
 $subject = clean_header($subject);
 
+try {
+    $allowed = triaggent_reserve_rate_limits('contact', [
+        ['key' => 'global', 'seconds' => 3600, 'max' => max(1, (int) ($config['global_rate_limit_per_hour'] ?? 60))],
+        ['key' => 'ip:' . client_ip(), 'seconds' => max(1, (int) ($config['rate_limit_seconds'] ?? 45)), 'max' => 1],
+        ['key' => 'recipient:' . strtolower($email), 'seconds' => 3600, 'max' => 3],
+    ]);
+} catch (Throwable $e) {
+    respond(503, ['ok' => false, 'error' => 'The contact form is temporarily unavailable. Please try again later.']);
+}
+if (!$allowed) {
+    header('Retry-After: 3600');
+    respond(429, ['ok' => false, 'error' => 'Please wait before sending another message.']);
+}
+
 $toEmail = clean_header((string) $config['to_email']);
 $toName = clean_header((string) ($config['to_name'] ?? 'Triaggent Consulting'));
 $fromEmail = clean_header((string) $config['from_email']);
@@ -146,15 +155,9 @@ $adminBody = implode("\n", [
 
 $confirmSubject = 'We received your message — Triaggent Consulting';
 $confirmBody = implode("\n", [
-    'Hi ' . $name . ',',
+    'Hello,',
     '',
     'Thanks for getting in touch. We received your request and a person will reply within one working day.',
-    '',
-    'Here is a copy of what you sent:',
-    '',
-    'Subject: ' . $subject,
-    '',
-    $message,
     '',
     '—',
     'Triaggent Consulting',
@@ -363,13 +366,11 @@ $confirmOk = send_message(
     $fromEmail,
     $fromName,
     $email,
-    $name,
+    'Website visitor',
     $confirmSubject,
     $confirmBody,
     $toEmail
 );
-
-@file_put_contents($rateFile, json_encode(['t' => time()]));
 
 respond(200, [
     'ok' => true,
