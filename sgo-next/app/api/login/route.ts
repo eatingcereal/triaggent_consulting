@@ -1,41 +1,53 @@
-import { getIronSession } from "iron-session";
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { sessionOptions, type SessionData } from "@/lib/session";
+import { isSameOrigin, loginBucket, passwordMatches, readSession } from "@/lib/auth";
+import { consumeLoginAttempt, createSession, revokeSession } from "@/lib/security-store";
 
-// Best-effort per-instance rate limit (mirrors the PHP gate: 8 tries / 10 min).
-const attempts = new Map<string, number[]>();
-const WINDOW_MS = 600_000;
-const MAX_TRIES = 8;
+export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  const ip = (req.headers.get("x-forwarded-for") || "0.0.0.0").split(",")[0].trim();
-  const now = Date.now();
-  const hits = (attempts.get(ip) || []).filter((t) => now - t < WINDOW_MS);
-
-  if (hits.length >= MAX_TRIES) {
-    return NextResponse.json({ ok: false, error: "rate" }, { status: 429 });
+  if (!isSameOrigin(req)) {
+    return NextResponse.json({ ok: false, error: "origin" }, { status: 403 });
   }
-
-  let password = "";
   try {
-    const body = await req.json();
-    password = String(body?.password ?? "");
+    // Reserve synchronously in persistent storage before reading the body.
+    if (!consumeLoginAttempt(loginBucket(req))) {
+      return NextResponse.json({ ok: false, error: "rate" }, { status: 429, headers: { "Retry-After": "600" } });
+    }
+    if (!req.headers.get("content-type")?.startsWith("application/json")
+        || Number(req.headers.get("content-length")) > 4096) {
+      return NextResponse.json({ ok: false, error: "invalid" }, { status: 400 });
+    }
+    const reader = req.body?.getReader();
+    let raw = "";
+    if (reader) {
+      const decoder = new TextDecoder();
+      let size = 0;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > 4096) {
+          await reader.cancel();
+          return NextResponse.json({ ok: false, error: "invalid" }, { status: 413 });
+        }
+        raw += decoder.decode(value, { stream: true });
+      }
+      raw += decoder.decode();
+    }
+    let body;
+    try { body = JSON.parse(raw); } catch {
+      return NextResponse.json({ ok: false, error: "invalid" }, { status: 400 });
+    }
+    if (typeof body?.password !== "string" || !passwordMatches(body.password)) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      return NextResponse.json({ ok: false, error: "invalid" }, { status: 401 });
+    }
+    const session = await readSession();
+    revokeSession(session.sessionId);
+    session.sessionId = createSession();
+    await session.save();
+    return NextResponse.json({ ok: true });
   } catch {
-    /* empty / non-JSON body */
+    return NextResponse.json({ ok: false, error: "unavailable" }, { status: 503 });
   }
-
-  const expected = process.env.SGO_PASSWORD ?? "";
-  if (!expected || password !== expected) {
-    hits.push(now);
-    attempts.set(ip, hits);
-    await new Promise((r) => setTimeout(r, 250)); // slow down guessing
-    return NextResponse.json({ ok: false, error: "invalid" }, { status: 401 });
-  }
-
-  attempts.delete(ip);
-  const session = await getIronSession<SessionData>(await cookies(), sessionOptions);
-  session.loggedIn = true;
-  await session.save();
-  return NextResponse.json({ ok: true });
 }

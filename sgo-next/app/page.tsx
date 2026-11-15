@@ -1,6 +1,10 @@
 import Dashboard from "./dashboard";
+import { redirect } from "next/navigation";
+import { isAuthenticated } from "@/lib/auth";
 
-// Access is enforced by middleware.ts (redirects to /login when not signed in).
-export default function Page() {
+export const dynamic = "force-dynamic";
+
+export default async function Page() {
+  if (!(await isAuthenticated())) redirect("/login");
   return <Dashboard />;
 }

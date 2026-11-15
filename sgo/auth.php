@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/rate-limit.php';
+require_once dirname(__DIR__) . '/security-headers.php';
+
 function sgo_config(): array
 {
     static $config;
@@ -75,31 +78,31 @@ function sgo_require_login(): void
 function sgo_rate_ok(): bool
 {
     $cfg = sgo_config();
-    $dir = sys_get_temp_dir() . '/sgo_login_rate';
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0700, true);
-    }
-    $file = $dir . '/' . hash('sha256', sgo_client_ip()) . '.json';
-    $now = time();
     $window = (int) $cfg['rate_window_seconds'];
     $max = (int) $cfg['rate_limit_max'];
-    $hits = [];
-    if (is_file($file)) {
-        $prev = json_decode((string) @file_get_contents($file), true);
-        $hits = is_array($prev['hits'] ?? null) ? $prev['hits'] : [];
+    try {
+        return triaggent_reserve_rate_limits('sgo-login', [
+            ['key' => 'global', 'seconds' => $window, 'max' => 64],
+            ['key' => 'ip:' . sgo_client_ip(), 'seconds' => $window, 'max' => $max],
+        ]);
+    } catch (Throwable $e) {
+        http_response_code(503);
+        header('Retry-After: 60');
+        exit('Sign-in is temporarily unavailable. Please try again later.');
     }
-    $hits = array_values(array_filter($hits, static fn($t) => is_int($t) && ($now - $t) < $window));
-    if (count($hits) >= $max) {
-        @file_put_contents($file, json_encode(['hits' => $hits]), LOCK_EX);
-        return false;
-    }
-    $hits[] = $now;
-    @file_put_contents($file, json_encode(['hits' => $hits]), LOCK_EX);
-    return true;
+}
+
+function sgo_nonce(): string
+{
+    static $nonce;
+    return $nonce ?? ($nonce = base64_encode(random_bytes(16)));
 }
 
 function sgo_headers(): void
 {
+    triaggent_security_headers("default-src 'self'; script-src 'self' 'nonce-" . sgo_nonce() . "'; "
+        . "style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.basemaps.cartocdn.com; "
+        . "connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     header('X-Robots-Tag: noindex, nofollow');
     header('X-Content-Type-Options: nosniff');
     header('Referrer-Policy: no-referrer');

@@ -1,24 +1,28 @@
-import { getIronSession } from "iron-session";
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-import { sessionOptions, type SessionData } from "@/lib/session";
+import { NextResponse, type NextRequest } from "next/server";
 
-// Gate the dashboard and the data API behind the shared-password session.
-export async function middleware(req: NextRequest) {
-  const res = NextResponse.next();
-  const session = await getIronSession<SessionData>(req, res, sessionOptions);
-
-  if (!session.loggedIn) {
-    if (req.nextUrl.pathname.startsWith("/api/")) {
-      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-    }
-    const url = req.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
-  }
+// Authorization lives in the page and API, alongside the revocable session
+// store. Middleware only supplies a fresh CSP nonce to Next's renderer.
+export function middleware(req: NextRequest) {
+  const nonce = btoa(crypto.randomUUID());
+  const development = process.env.NODE_ENV !== "production";
+  const policy = [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}'${development ? " 'unsafe-eval'" : ""}`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https://*.basemaps.cartocdn.com",
+    `connect-src 'self'${development ? " ws: wss:" : ""}`,
+    "object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'", "form-action 'self'",
+    ...(development ? [] : ["upgrade-insecure-requests"]),
+  ].join("; ");
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("Content-Security-Policy", policy);
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
+  res.headers.set("Content-Security-Policy", policy);
+  res.headers.set("Cache-Control", "private, no-store");
   return res;
 }
 
 export const config = {
-  matcher: ["/", "/api/data"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

@@ -1,9 +1,17 @@
 import { NextResponse } from "next/server";
-import { sessionOptions } from "@/lib/session";
+import { isSameOrigin, readSession } from "@/lib/auth";
+import { revokeSession } from "@/lib/security-store";
 
-// Expire the session cookie and send the user back to the login screen.
-export async function GET(req: Request) {
-  const res = NextResponse.redirect(new URL("/login", req.url));
-  res.cookies.set(sessionOptions.cookieName, "", { path: "/", maxAge: 0 });
-  return res;
+export async function POST(req: Request) {
+  if (!isSameOrigin(req)) {
+    return NextResponse.json({ ok: false, error: "origin" }, { status: 403 });
+  }
+  try {
+    const session = await readSession();
+    revokeSession(session.sessionId);
+    session.destroy();
+    return NextResponse.redirect(new URL("/login", req.url), 303);
+  } catch {
+    return NextResponse.json({ ok: false, error: "unavailable" }, { status: 503 });
+  }
 }

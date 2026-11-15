@@ -2,6 +2,7 @@
 """Update mobile styles inside the bundled homepage; retain all runtime assets."""
 import contextlib,json,os,re,shutil,tempfile
 from pathlib import Path
+from security_policy import update_homepage_policy
 root=Path(__file__).resolve().parents[1]
 def write_atomically(path,text):
     """Replace path in one step, so a failed write never leaves a partial page behind."""
@@ -23,4 +24,5 @@ t=re.sub(r'<!-- mobile-navigation:start -->.*?<!-- mobile-navigation:end -->',la
 t,n=re.subn(r'<style id="triaggent-mobile-layout">.*?</style>',lambda _:block,t,count=1,flags=re.S)
 if n!=1: raise SystemExit('Mobile style block missing; no files changed')
 write_atomically(p,s[:m.start(2)]+json.dumps(t,ensure_ascii=False).replace('</','<\\/')+s[m.end(2):])
+update_homepage_policy(root)
 print('Updated responsive homepage styles')
